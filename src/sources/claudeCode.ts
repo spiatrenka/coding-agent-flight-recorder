@@ -17,7 +17,7 @@
  *    happens mid-task and splitting there would cut a single logical run in half.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -26,15 +26,15 @@ import { classifyCommand, mutatesWorkingTree } from "../commands.js";
 import {
   type Command,
   type EditOp,
-  type FileEdit,
-  type Run,
-  type TraceEvent,
-  type Usage,
   emptyUsage,
+  type FileEdit,
   makeRunId,
   parseTs,
+  type Run,
   secondsBetween,
+  type TraceEvent,
   truncate,
+  type Usage,
 } from "../model.js";
 import { redact } from "../redact.js";
 import type { DiscoveredFile, Source } from "./types.js";
@@ -46,8 +46,15 @@ const IDLE_GAP_SECONDS = Number(process.env["FLIGHTREC_IDLE_GAP"] ?? 1800);
 const MIN_EVENTS_PER_RUN = 2;
 
 const EDIT_TOOLS = new Set([
-  "Edit", "Write", "MultiEdit", "NotebookEdit", "Update",
-  "str_replace", "create_file", "str_replace_based_edit_tool", "ApplyPatch",
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
+  "Update",
+  "str_replace",
+  "create_file",
+  "str_replace_based_edit_tool",
+  "ApplyPatch",
 ]);
 const SHELL_TOOLS = new Set(["Bash", "BashOutput", "bash_tool", "Shell", "run_command"]);
 
@@ -61,17 +68,34 @@ const SHELL_TOOLS = new Set(["Bash", "BashOutput", "bash_tool", "Shell", "run_co
  * value — known and deliberately unmapped, not drift.
  */
 const KNOWN_LINE_TYPES = new Set([
-  "user", "assistant", "system", "summary", "result", "progress", "attachment",
-  "file-history-snapshot", "queued-command", "compact-boundary", "x-hook",
+  "user",
+  "assistant",
+  "system",
+  "summary",
+  "result",
+  "progress",
+  "attachment",
+  "file-history-snapshot",
+  "queued-command",
+  "compact-boundary",
+  "x-hook",
   // observed on Claude Code 2.1.x — UI and session bookkeeping
-  "last-prompt", "queue-operation", "permission-mode", "mode", "ai-title",
+  "last-prompt",
+  "queue-operation",
+  "permission-mode",
+  "mode",
+  "ai-title",
   "bridge-session",
 ]);
 
 /** Text markers Claude Code injects into user turns that aren't really user speech. */
 const META_PREFIXES = [
-  "<command-name>", "<local-command-stdout>", "<command-message>",
-  "Caveat: The messages below", "<system-reminder>", "<bash-input>",
+  "<command-name>",
+  "<local-command-stdout>",
+  "<command-message>",
+  "Caveat: The messages below",
+  "<system-reminder>",
+  "<bash-input>",
   "<user-prompt-submit-hook>",
 ];
 
@@ -165,7 +189,7 @@ export class ClaudeCodeSource implements Source {
     // and long project paths get truncated+hashed directory names.
     const walk = (dir: string, depth = 0): void => {
       if (depth > 6) return;
-      let entries;
+      let entries: Dirent[];
       try {
         entries = readdirSync(dir, { withFileTypes: true });
       } catch {
@@ -241,8 +265,7 @@ export class ClaudeCodeSource implements Source {
   }
 
   private buildRun(seg: Json[], path: string, segmentIdx: number): Run | null {
-    const sessionId =
-      seg.map((o) => str(o["sessionId"])).find(Boolean) ?? basename(path, ".jsonl");
+    const sessionId = seg.map((o) => str(o["sessionId"])).find(Boolean) ?? basename(path, ".jsonl");
 
     const run: Run = {
       runId: makeRunId(this.name, sessionId, segmentIdx),
@@ -332,7 +355,11 @@ export class ClaudeCodeSource implements Source {
   }
 
   private handleAssistant(
-    obj: Json, run: Run, ts: string | null, idx: number, pending: Map<string, TraceEvent>,
+    obj: Json,
+    run: Run,
+    ts: string | null,
+    idx: number,
+    pending: Map<string, TraceEvent>,
   ): number {
     const msg = isRecord(obj["message"]) ? obj["message"] : {};
     const model = str(msg["model"]);
@@ -343,21 +370,35 @@ export class ClaudeCodeSource implements Source {
       const btype = b["type"];
       if (btype === "text" && String(b["text"] ?? "").trim()) {
         run.events.push({
-          idx: idx++, ts, kind: "assistant_message", role: "assistant",
-          text: truncate(b["text"], 4000), model, rawType: "assistant",
+          idx: idx++,
+          ts,
+          kind: "assistant_message",
+          role: "assistant",
+          text: truncate(b["text"], 4000),
+          model,
+          rawType: "assistant",
         });
       } else if (btype === "thinking") {
         run.events.push({
-          idx: idx++, ts, kind: "thinking", role: "assistant",
-          text: truncate(b["thinking"] ?? b["text"], 2000), model, rawType: "assistant",
+          idx: idx++,
+          ts,
+          kind: "thinking",
+          role: "assistant",
+          text: truncate(b["thinking"] ?? b["text"], 2000),
+          model,
+          rawType: "assistant",
         });
       } else if (btype === "tool_use") {
         const ev: TraceEvent = {
-          idx: idx++, ts, kind: "tool_call", role: "assistant",
+          idx: idx++,
+          ts,
+          kind: "tool_call",
+          role: "assistant",
           toolName: str(b["name"]) ?? "unknown",
           toolUseId: str(b["id"]),
           toolInput: isRecord(b["input"]) ? b["input"] : {},
-          model, rawType: "assistant",
+          model,
+          rawType: "assistant",
         };
         run.events.push(ev);
         if (ev.toolUseId) pending.set(ev.toolUseId, ev);
@@ -367,7 +408,11 @@ export class ClaudeCodeSource implements Source {
   }
 
   private handleUser(
-    obj: Json, run: Run, ts: string | null, idx: number, pending: Map<string, TraceEvent>,
+    obj: Json,
+    run: Run,
+    ts: string | null,
+    idx: number,
+    pending: Map<string, TraceEvent>,
   ): number {
     const msg = isRecord(obj["message"]) ? obj["message"] : {};
     const content = msg["content"];
@@ -382,14 +427,22 @@ export class ClaudeCodeSource implements Source {
     if (!text.trim()) return idx;
     const meta = Boolean(obj["isMeta"]) || isMetaText(text);
     run.events.push({
-      idx: idx++, ts, kind: meta ? "system" : "user_message",
-      role: "user", text: truncate(text, 4000), rawType: "user",
+      idx: idx++,
+      ts,
+      kind: meta ? "system" : "user_message",
+      role: "user",
+      text: truncate(text, 4000),
+      rawType: "user",
     });
     return idx;
   }
 
   private handleToolResult(
-    obj: Json, block: Json, run: Run, ts: string | null, idx: number,
+    obj: Json,
+    block: Json,
+    run: Run,
+    ts: string | null,
+    idx: number,
     pending: Map<string, TraceEvent>,
   ): number {
     const tuid = str(block["tool_use_id"]);
@@ -403,11 +456,16 @@ export class ClaudeCodeSource implements Source {
     const resultIdx = idx;
 
     run.events.push({
-      idx: idx++, ts, kind: "tool_result", role: "user",
-      toolName, toolUseId: tuid,
+      idx: idx++,
+      ts,
+      kind: "tool_result",
+      role: "user",
+      toolName,
+      toolUseId: tuid,
       ok: denied ? false : !isError,
       error: isError || denied ? truncate(body, 1500) : null,
-      text: truncate(redact(body), 3000), rawType: "user",
+      text: truncate(redact(body), 3000),
+      rawType: "user",
     });
 
     if (call) {
@@ -458,22 +516,34 @@ function resultText(block: Json, result: unknown): string {
 function looksDenied(body: string): boolean {
   const b = (body || "").toLowerCase();
   return [
-    "permission to use", "user doesn't want to", "requested permissions",
-    "blocked by", "operation not permitted by hook", "permissiondecision",
-    "user rejected", "denied by",
+    "permission to use",
+    "user doesn't want to",
+    "requested permissions",
+    "blocked by",
+    "operation not permitted by hook",
+    "permissiondecision",
+    "user rejected",
+    "denied by",
   ].some((s) => b.includes(s));
 }
 
 function recordEdit(
-  run: Run, call: TraceEvent, result: unknown, resultIdx: number,
-  ts: string | null, ok: boolean,
+  run: Run,
+  call: TraceEvent,
+  result: unknown,
+  resultIdx: number,
+  ts: string | null,
+  ok: boolean,
 ): void {
   const inp = call.toolInput ?? {};
   const tool = call.toolName ?? "";
   const rd = isRecord(result) ? result : {};
   const path =
-    str(rd["filePath"]) ?? str(inp["file_path"]) ?? str(inp["path"]) ??
-    str(inp["notebook_path"]) ?? "unknown";
+    str(rd["filePath"]) ??
+    str(inp["file_path"]) ??
+    str(inp["path"]) ??
+    str(inp["notebook_path"]) ??
+    "unknown";
 
   let op: EditOp = "edit";
   if (tool === "Write" || tool === "create_file" || rd["type"] === "create") op = "create";
@@ -511,17 +581,28 @@ function recordEdit(
   }
 
   const edit: FileEdit = {
-    eventIdx: resultIdx, ts, path, op,
-    linesAdded: added, linesRemoved: removed,
-    toolUseId: call.toolUseId ?? null, applied: ok,
+    eventIdx: resultIdx,
+    ts,
+    path,
+    op,
+    linesAdded: added,
+    linesRemoved: removed,
+    toolUseId: call.toolUseId ?? null,
+    applied: ok,
     diffHunks: preview.map(redact),
   };
   run.fileEdits.push(edit);
 }
 
 function recordCommand(
-  run: Run, call: TraceEvent, result: unknown, body: string, resultIdx: number,
-  ts: string | null, isError: boolean, denied: boolean,
+  run: Run,
+  call: TraceEvent,
+  result: unknown,
+  body: string,
+  resultIdx: number,
+  ts: string | null,
+  isError: boolean,
+  denied: boolean,
 ): void {
   const inp = call.toolInput ?? {};
   const cmd = String(inp["command"] ?? inp["cmd"] ?? "").trim();
@@ -532,9 +613,11 @@ function recordCommand(
   const stderr = String(rd["stderr"] ?? "");
   const interrupted = Boolean(rd["interrupted"]);
   const exitCode =
-    typeof rd["exitCode"] === "number" ? rd["exitCode"]
-    : typeof rd["returnCode"] === "number" ? rd["returnCode"]
-    : null;
+    typeof rd["exitCode"] === "number"
+      ? rd["exitCode"]
+      : typeof rd["returnCode"] === "number"
+        ? rd["returnCode"]
+        : null;
 
   // Claude Code does not record exit codes, so the parsed framework summary is
   // normally the strongest evidence available — ranked above the string
@@ -549,12 +632,17 @@ function recordCommand(
   else ok = inferOkFromOutput(stdout || body, stderr);
 
   const command: Command = {
-    eventIdx: resultIdx, ts, command: cmd,
+    eventIdx: resultIdx,
+    ts,
+    command: cmd,
     category: classifyCommand(cmd),
-    ok, exitCode, check,
+    ok,
+    exitCode,
+    check,
     stdoutTail: truncate(redact(stdout || body), 1200),
     stderrTail: stderr ? truncate(redact(stderr), 800) : null,
-    interrupted, denied,
+    interrupted,
+    denied,
     mutatesFiles: mutatesWorkingTree(cmd),
   };
   run.commands.push(command);
@@ -568,9 +656,20 @@ function inferOkFromOutput(stdout: string, stderr: string): boolean | null {
   const blob = `${stdout}\n${stderr}`.toLowerCase();
   if (!blob.trim()) return null;
   const fail = [
-    "traceback (most recent call last)", " failed,", "failed |", "test failed",
-    "tests failed", "error ts", "npm err!", "assertionerror", "fatal:",
-    "command not found", "compilation failed", "build failed", "✗", "failures:",
+    "traceback (most recent call last)",
+    " failed,",
+    "failed |",
+    "test failed",
+    "tests failed",
+    "error ts",
+    "npm err!",
+    "assertionerror",
+    "fatal:",
+    "command not found",
+    "compilation failed",
+    "build failed",
+    "✗",
+    "failures:",
   ];
   const pass = ["passed", "all tests passed", "ok ", "✓", "build succeeded", "0 errors", "success"];
   if (fail.some((m) => blob.includes(m))) return false;

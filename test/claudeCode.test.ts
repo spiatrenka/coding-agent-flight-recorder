@@ -16,9 +16,9 @@ import { after, before, describe, it } from "node:test";
 import { analyze } from "../src/analyze/index.js";
 import { detectFileChurn } from "../src/analyze/loops.js";
 import { analyzeVerification, unverifiedClaimFindings } from "../src/analyze/verify.js";
+import { Builder } from "../src/demo/fixtures.js";
 import type { Run } from "../src/model.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
-import { Builder } from "../src/demo/fixtures.js";
 
 let root: string;
 

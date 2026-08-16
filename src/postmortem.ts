@@ -11,15 +11,14 @@
  * a config change rather than a rewrite.
  */
 
+import { describeCost, PRICES_UPDATED, priceTableSourceName } from "./analyze/cost.js";
 import type { Analysis } from "./analyze/index.js";
-import { PRICES_UPDATED, describeCost, priceTableSourceName } from "./analyze/cost.js";
 import {
-  type Finding,
+  filesTouched,
   type Label,
   type Run,
-  type Severity,
   SEVERITY_ORDER,
-  filesTouched,
+  type Severity,
   toolCalls,
   totalTokens,
   unrecordedWrites,
@@ -266,7 +265,9 @@ function costSection(run: Run): string {
 function riskSection(a: Analysis): string {
   if (a.findings.length === 0) return "No risk flags raised.";
   const lines: string[] = [];
-  for (const f of [...a.findings].sort((x, y) => SEVERITY_ORDER[y.severity] - SEVERITY_ORDER[x.severity])) {
+  for (const f of [...a.findings].sort(
+    (x, y) => SEVERITY_ORDER[y.severity] - SEVERITY_ORDER[x.severity],
+  )) {
     lines.push(`[${f.severity.toUpperCase().padEnd(6)}] ${f.title}`);
     lines.push(`         ${f.detail}`);
     const ev = f.evidence[0];
@@ -301,11 +302,18 @@ function stopSection(a: Analysis): string {
 
 function headline(run: Run, a: Analysis): string {
   const bits = [dur(a.metrics.durationS)];
-  bits.push(a.metrics.filesChanged ? `${plural(a.metrics.filesChanged, "file")} changed` : "no files changed");
+  bits.push(
+    a.metrics.filesChanged
+      ? `${plural(a.metrics.filesChanged, "file")} changed`
+      : "no files changed",
+  );
   if (run.usage.costUsd !== null) bits.push(`~$${run.usage.costUsd.toFixed(2)}`);
   const phrases: Record<string, string> = {
-    passed: "checks passed", failed: "checks failing", mixed: "checks mixed",
-    not_run: "nothing verified", unknown: "check results unclear",
+    passed: "checks passed",
+    failed: "checks failing",
+    mixed: "checks mixed",
+    not_run: "nothing verified",
+    unknown: "check results unclear",
   };
   bits.push(phrases[a.verification.status] ?? "verification unclear");
   return bits.join(" · ");

@@ -15,12 +15,12 @@ import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
 import { type Analysis, analyze } from "../src/analyze/index.js";
-import { type Run, filesTouched, linesAdded, linesRemoved, totalTokens } from "../src/model.js";
+import { ALL } from "../src/demo/fixtures.js";
+import { filesTouched, linesAdded, linesRemoved, type Run, totalTokens } from "../src/model.js";
 import { generate } from "../src/postmortem.js";
 import { containsSecret, redact } from "../src/redact.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 import { Store } from "../src/store.js";
-import { ALL } from "../src/demo/fixtures.js";
 
 const TMP = mkdtempSync(join(tmpdir(), "flightrec-test-"));
 after(() => rmSync(TMP, { recursive: true, force: true }));
@@ -130,7 +130,8 @@ describe("risk detection", () => {
   it("flags reading .env", () => assert.ok(ids.has("risk.secret_file_read")));
   it("flags an edit outside the project root", () => assert.ok(ids.has("risk.outside_project")));
   it("flags git reset --hard as destructive", () => assert.ok(ids.has("risk.destructive_command")));
-  it("reports a denied force-push separately", () => assert.ok(ids.has("risk.destructive_attempt")));
+  it("reports a denied force-push separately", () =>
+    assert.ok(ids.has("risk.destructive_attempt")));
   it("flags a CI workflow edit", () => assert.ok(ids.has("risk.config_file_write")));
   it("raises at least one high-severity finding", () => {
     assert.ok(a.findings.some((f) => f.severity === "high"));

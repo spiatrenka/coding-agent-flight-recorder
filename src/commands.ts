@@ -42,7 +42,8 @@ export function classifyCommand(cmd: string): CommandCategory {
  * Redirect targets that are not real writes. `> /dev/null` is the common one;
  * scratch space is deliberate and uninteresting for blast-radius purposes.
  */
-const THROWAWAY_TARGET = /^\s*(\/dev\/(null|stderr|stdout)|\/tmp\/|\/var\/folders\/|\/private\/tmp\/)/;
+const THROWAWAY_TARGET =
+  /^\s*(\/dev\/(null|stderr|stdout)|\/tmp\/|\/var\/folders\/|\/private\/tmp\/)/;
 
 /** `cmd > file` / `cmd >> file`, ignoring `2>&1`, `>&2` and throwaway targets. */
 function hasRealRedirect(cmd: string): boolean {

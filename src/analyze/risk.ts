@@ -15,13 +15,13 @@ import { posix } from "node:path";
 
 import {
   type Command,
+  diffMayBeIncomplete,
   type Evidence,
   type Finding,
-  type Run,
-  type Severity,
-  diffMayBeIncomplete,
   filesTouched,
   netDiffLines,
+  type Run,
+  type Severity,
   toolCalls,
   totalTokens,
 } from "../model.js";
@@ -62,7 +62,8 @@ export function classifyPath(path: string): { tier: PathTier; why: string | null
 
 function absolute(path: string, project: string | null): string {
   let p = path.replace(/\\/g, "/");
-  if (p.startsWith("~")) p = posix.join(homedir().replace(/\\/g, "/"), p.slice(1).replace(/^\/+/, ""));
+  if (p.startsWith("~"))
+    p = posix.join(homedir().replace(/\\/g, "/"), p.slice(1).replace(/^\/+/, ""));
   if (!p.startsWith("/") && project) p = posix.join(project.replace(/\\/g, "/"), p);
   return posix.normalize(p);
 }
@@ -91,7 +92,11 @@ const DESTRUCTIVE: ReadonlyArray<[RegExp, Severity, string]> = [
   [/\bdd\s+if=/, "high", "raw disk write"],
   [/\bmkfs(\.\w+)?\b/, "high", "formats a filesystem"],
   [/\bchmod\s+(-R\s+)?777\b/, "medium", "world-writable permissions"],
-  [/\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|k)?sh\b/, "high", "pipes a download straight into a shell"],
+  [
+    /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|k)?sh\b/,
+    "high",
+    "pipes a download straight into a shell",
+  ],
   [/\b(npm\s+publish|cargo\s+publish|twine\s+upload)\b/, "high", "publishes a package"],
   [/\bsudo\b/, "medium", "elevated privileges"],
   [/\b(shutdown|reboot|killall)\b/, "medium", "host-level action"],
@@ -149,7 +154,10 @@ export function detectSensitiveFiles(run: Run): Finding[] {
         "worth a human read: these files are usually gitignored, environment-specific, and not " +
         "reconstructible from the repo.",
       evidence: secretEdits.slice(0, 6).map<Evidence>(({ edit, why }) => ({
-        eventIdx: edit.eventIdx, ts: edit.ts, label: why, excerpt: edit.path,
+        eventIdx: edit.eventIdx,
+        ts: edit.ts,
+        label: why,
+        excerpt: edit.path,
       })),
       firstEventIdx: Math.min(...secretEdits.map((s) => s.edit.eventIdx)),
       stopTrigger: "the first write to a credential file",
@@ -160,8 +168,12 @@ export function detectSensitiveFiles(run: Run): Finding[] {
           settingsJson: {
             permissions: {
               deny: [
-                "Edit(**/.env*)", "Write(**/.env*)", "Edit(**/*.pem)",
-                "Write(**/*.pem)", "Edit(**/.ssh/**)", "Write(**/.ssh/**)",
+                "Edit(**/.env*)",
+                "Write(**/.env*)",
+                "Edit(**/*.pem)",
+                "Write(**/*.pem)",
+                "Edit(**/.ssh/**)",
+                "Write(**/.ssh/**)",
               ],
             },
           },
@@ -181,7 +193,10 @@ export function detectSensitiveFiles(run: Run): Finding[] {
         "transcript on disk. Values shown in the timeline here are redacted, but the original " +
         "transcript is not.",
       evidence: readHits.slice(0, 6).map<Evidence>((h) => ({
-        eventIdx: h.idx, ts: h.ts, label: h.why, excerpt: h.path,
+        eventIdx: h.idx,
+        ts: h.ts,
+        label: h.why,
+        excerpt: h.path,
       })),
       firstEventIdx: Math.min(...readHits.map((h) => h.idx)),
       stopTrigger: "the first read of a credential file",
@@ -211,7 +226,10 @@ export function detectSensitiveFiles(run: Run): Finding[] {
         "change behaviour outside this repository's test suite, so a green test run does not " +
         "confirm they're safe.",
       evidence: configEdits.slice(0, 8).map<Evidence>(({ edit, why }) => ({
-        eventIdx: edit.eventIdx, ts: edit.ts, label: why, excerpt: edit.path,
+        eventIdx: edit.eventIdx,
+        ts: edit.ts,
+        label: why,
+        excerpt: edit.path,
       })),
       firstEventIdx: Math.min(...configEdits.map((c) => c.edit.eventIdx)),
       suggestedRules: [
@@ -245,7 +263,10 @@ export function detectScopeEscape(run: Run): Finding[] {
         `repository's git status and its review process — nobody will see them in a diff, and ` +
         `they persist after the branch is thrown away.`,
       evidence: outside.slice(0, 8).map<Evidence>((e) => ({
-        eventIdx: e.eventIdx, ts: e.ts, label: e.op, excerpt: e.path,
+        eventIdx: e.eventIdx,
+        ts: e.ts,
+        label: e.op,
+        excerpt: e.path,
       })),
       firstEventIdx: Math.min(...outside.map((e) => e.eventIdx)),
       suggestedRules: [
@@ -274,9 +295,11 @@ export function detectDestructiveCommands(run: Run): Finding[] {
   const findings: Finding[] = [];
 
   if (executed.length) {
-    const worst: Severity = executed.some((e) => e.severity === "high") ? "high"
-      : executed.every((e) => e.severity === "low") ? "low"
-      : "medium";
+    const worst: Severity = executed.some((e) => e.severity === "high")
+      ? "high"
+      : executed.every((e) => e.severity === "low")
+        ? "low"
+        : "medium";
     findings.push({
       id: "risk.destructive_command",
       title: `Ran ${executed.length} destructive command(s)`,
@@ -286,7 +309,10 @@ export function detectDestructiveCommands(run: Run): Finding[] {
         "Commands were executed that delete, overwrite or publish state. These are not " +
         "recoverable from the transcript — check the affected targets directly.",
       evidence: executed.slice(0, 8).map<Evidence>(({ c, why }) => ({
-        eventIdx: c.eventIdx, ts: c.ts, label: why, excerpt: c.command,
+        eventIdx: c.eventIdx,
+        ts: c.ts,
+        label: why,
+        excerpt: c.command,
       })),
       firstEventIdx: Math.min(...executed.map((e) => e.c.eventIdx)),
       stopTrigger: "the first destructive command",
@@ -297,8 +323,10 @@ export function detectDestructiveCommands(run: Run): Finding[] {
           settingsJson: {
             permissions: {
               deny: [
-                "Bash(git push --force:*)", "Bash(git reset --hard:*)",
-                "Bash(git clean:*)", "Bash(rm -rf /*)",
+                "Bash(git push --force:*)",
+                "Bash(git reset --hard:*)",
+                "Bash(git clean:*)",
+                "Bash(rm -rf /*)",
               ],
             },
           },
@@ -321,13 +349,18 @@ export function detectDestructiveCommands(run: Run): Finding[] {
         "prepared to do unsupervised — relevant if you are considering running this workload " +
         "with permissions relaxed.",
       evidence: blocked.slice(0, 8).map<Evidence>(({ c, why }) => ({
-        eventIdx: c.eventIdx, ts: c.ts,
-        label: `${why} (${c.denied ? "denied" : "failed"})`, excerpt: c.command,
+        eventIdx: c.eventIdx,
+        ts: c.ts,
+        label: `${why} (${c.denied ? "denied" : "failed"})`,
+        excerpt: c.command,
       })),
       firstEventIdx: Math.min(...blocked.map((b) => b.c.eventIdx)),
       suggestedRules: [
-        { kind: "keep", rule: "Keep the existing guard that stopped this",
-          implementation: "No change needed — this is the control working." },
+        {
+          kind: "keep",
+          rule: "Keep the existing guard that stopped this",
+          implementation: "No change needed — this is the control working.",
+        },
       ],
     });
   }
@@ -341,7 +374,8 @@ export function detectBlastRadius(run: Run, verification: Verification): Finding
   const smallAsk = run.goalIsKnown && (run.goal ?? "").length < 200;
 
   const reasons: string[] = [];
-  if (smallAsk && files.length >= 10) reasons.push(`${files.length} files changed for a one-line request`);
+  if (smallAsk && files.length >= 10)
+    reasons.push(`${files.length} files changed for a one-line request`);
   if (lines >= 400 && verification.status !== "passed") {
     reasons.push(`${lines} lines changed with no passing verification`);
   }
@@ -391,14 +425,18 @@ export function detectWastedSpend(run: Run): Finding[] {
         "repository is exactly where it started.",
       evidence: [
         {
-          eventIdx: 0, label: "duration",
+          eventIdx: 0,
+          label: "duration",
           excerpt: `${Math.floor(dur / 60)}m ${Math.floor(dur % 60)}s, ${toolCalls(run).length} tool calls, 0 edits`,
         },
       ],
       firstEventIdx: null,
       suggestedRules: [
-        { kind: "time_budget", rule: "Check in after 10 minutes with no file change",
-          implementation: "Stop hook or a wall-clock budget on the run" },
+        {
+          kind: "time_budget",
+          rule: "Check in after 10 minutes with no file change",
+          implementation: "Stop hook or a wall-clock budget on the run",
+        },
       ],
     });
   }
@@ -414,7 +452,8 @@ export function detectWastedSpend(run: Run): Finding[] {
         `here are modelled from token counters, not billed amounts.`,
       evidence: [
         {
-          eventIdx: 0, label: "tokens",
+          eventIdx: 0,
+          label: "tokens",
           excerpt: `${totalTokens(run.usage).toLocaleString()} tokens across ${Object.keys(run.usage.byModel).length} model(s)`,
         },
       ],

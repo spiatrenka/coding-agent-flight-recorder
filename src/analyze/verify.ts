@@ -10,10 +10,10 @@ import {
   type Command,
   type Evidence,
   type Finding,
-  type Run,
   filesTouched,
   netDiffLines,
   normalizedCommand,
+  type Run,
 } from "../model.js";
 
 const CHECK_CATEGORIES = new Set(["test", "build", "lint"]);
@@ -122,8 +122,10 @@ export function analyzeVerification(run: Run): Verification {
   for (const c of finalByCommand.values()) {
     if (!c.check) continue;
     frameworks.add(c.check.framework);
-    if (c.check.passed !== null) base.assertionsPassed = (base.assertionsPassed ?? 0) + c.check.passed;
-    if (c.check.failed !== null) base.assertionsFailed = (base.assertionsFailed ?? 0) + c.check.failed;
+    if (c.check.passed !== null)
+      base.assertionsPassed = (base.assertionsPassed ?? 0) + c.check.passed;
+    if (c.check.failed !== null)
+      base.assertionsFailed = (base.assertionsFailed ?? 0) + c.check.failed;
   }
   base.frameworks = [...frameworks].sort();
 
@@ -179,7 +181,10 @@ export function unverifiedClaimFindings(run: Run, v: Verification): Finding[] {
       category: "verification",
       detail,
       evidence: claims.slice(0, 4).map<Evidence>((e) => ({
-        eventIdx: e.idx, ts: e.ts, label: "claim", excerpt: (e.text ?? "").slice(0, 220),
+        eventIdx: e.idx,
+        ts: e.ts,
+        label: "claim",
+        excerpt: (e.text ?? "").slice(0, 220),
       })),
       firstEventIdx: claims[0]?.idx ?? null,
       suggestedRules: [

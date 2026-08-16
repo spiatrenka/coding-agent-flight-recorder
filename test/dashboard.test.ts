@@ -17,20 +17,19 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { analyze } from "../src/analyze/index.js";
+import { Builder } from "../src/demo/fixtures.js";
+import { OcBuilder } from "../src/demo/opencodeFixtures.js";
 import { generate } from "../src/postmortem.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 import { OpenCodeSource } from "../src/sources/opencode.js";
 import { Store } from "../src/store.js";
-import { Builder } from "../src/demo/fixtures.js";
-import { OcBuilder } from "../src/demo/opencodeFixtures.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = join(HERE, "..", "..", "src", "web", "index.html");
@@ -76,16 +75,27 @@ function guardSnakeCase(value: unknown, path: string): unknown {
 /** Enough of a DOM for the script's top-level statements to evaluate. */
 function domStub(): unknown {
   const node = (): unknown => ({
-    onclick: null, textContent: "", innerHTML: "", dataset: {}, classList: {},
-    setAttribute: () => {}, after: () => {}, remove: () => {},
-    querySelector: () => null, querySelectorAll: () => [],
+    onclick: null,
+    textContent: "",
+    innerHTML: "",
+    dataset: {},
+    classList: {},
+    setAttribute: () => {},
+    after: () => {},
+    remove: () => {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
   });
   return {
     querySelector: node,
     querySelectorAll: () => [],
     createElement: node,
     // The theme toggle reads and writes attributes on <html> at load time.
-    documentElement: { getAttribute: () => null, setAttribute: () => {}, removeAttribute: () => {} },
+    documentElement: {
+      getAttribute: () => null,
+      setAttribute: () => {},
+      removeAttribute: () => {},
+    },
   };
 }
 
@@ -98,7 +108,8 @@ function loadRenderers(): Renderers {
   assert.ok(script.includes("function renderRun"), "extracted the wrong <script> block");
   const doc = domStub();
   (globalThis as Record<string, unknown>)["fetch"] = async () => ({
-    json: async () => [], text: async () => "",
+    json: async () => [],
+    text: async () => "",
   });
   const factory = new Function(
     "document",
@@ -190,8 +201,16 @@ describe("dashboard renders the API payload", () => {
     // suite exists for, so pin the row shape explicitly.
     const row = store.listRuns({ includeTrivial: true })[0];
     assert.ok(row);
-    for (const key of ["run_id", "project_path", "git_branch", "started_at",
-                       "duration_s", "files_changed", "cost_usd", "cost_known"]) {
+    for (const key of [
+      "run_id",
+      "project_path",
+      "git_branch",
+      "started_at",
+      "duration_s",
+      "files_changed",
+      "cost_usd",
+      "cost_known",
+    ]) {
       assert.ok(key in row, `run list row must expose ${key}`);
     }
   });
@@ -201,8 +220,14 @@ describe("dashboard renders the API payload", () => {
     assert.ok(summary);
     const d = store.getRun(summary.run_id);
     assert.ok(d);
-    for (const key of ["projectPath", "gitBranch", "startedAt", "agentVersion",
-                       "fileEdits", "schemaDrift"]) {
+    for (const key of [
+      "projectPath",
+      "gitBranch",
+      "startedAt",
+      "agentVersion",
+      "fileEdits",
+      "schemaDrift",
+    ]) {
       assert.ok(key in d.trace, `trace must expose ${key}`);
     }
     for (const key of ["labelReason", "stopPoint", "metrics"]) {

@@ -110,10 +110,17 @@ export class OcBuilder {
       callID: `toolu_${this.partN}`,
       tool: "edit",
       state: ok
-        ? { status: "completed", input: { filePath, oldString, newString },
-            output: "Edit applied successfully.", metadata: { exists: true } }
-        : { status: "error", input: { filePath, oldString, newString },
-            error: "Error: file not found" },
+        ? {
+            status: "completed",
+            input: { filePath, oldString, newString },
+            output: "Edit applied successfully.",
+            metadata: { exists: true },
+          }
+        : {
+            status: "error",
+            input: { filePath, oldString, newString },
+            error: "Error: file not found",
+          },
     });
     return this;
   }
@@ -181,8 +188,13 @@ export class OcBuilder {
     mkdirSync(join(st, "project"), { recursive: true });
     writeFileSync(
       join(st, "project", `${PROJECT_ID}.json`),
-      JSON.stringify({ id: PROJECT_ID, worktree: CWD, vcs: "git", sandboxes: [],
-        time: { created: this.t, updated: this.t } }),
+      JSON.stringify({
+        id: PROJECT_ID,
+        worktree: CWD,
+        vcs: "git",
+        sandboxes: [],
+        time: { created: this.t, updated: this.t },
+      }),
     );
 
     const sessionDir = join(st, "session", PROJECT_ID);

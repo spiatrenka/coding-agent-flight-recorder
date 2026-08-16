@@ -14,10 +14,10 @@ import {
   type Evidence,
   type FileEdit,
   type Finding,
-  type Run,
-  type TraceEvent,
   normalizedCommand,
+  type Run,
   secondsBetween,
+  type TraceEvent,
 } from "../model.js";
 
 /** brief: "repeated identical tool call 3+ times" */
@@ -76,9 +76,7 @@ function groupBy<T>(items: T[], key: (t: T) => string): Map<string, T[]> {
 export function detectIdenticalCalls(run: Run): Finding[] {
   // Read-only exploration repeats are normal and not interesting.
   const skip = new Set(["TodoWrite", "Glob"]);
-  const calls = run.events.filter(
-    (e) => e.kind === "tool_call" && !skip.has(e.toolName ?? ""),
-  );
+  const calls = run.events.filter((e) => e.kind === "tool_call" && !skip.has(e.toolName ?? ""));
   const groups = groupBy(calls, (e) => signature(e.toolName ?? "", e.toolInput ?? {}));
 
   const findings: Finding[] = [];
@@ -96,7 +94,10 @@ export function detectIdenticalCalls(run: Run): Finding[] {
         `Repeating an identical call cannot produce new information unless the world changed ` +
         `in between, so this is either a retry loop or the agent losing track of what it already did.`,
       evidence: evs.slice(0, 6).map<Evidence>((e, i) => ({
-        eventIdx: e.idx, ts: e.ts, label: `call #${i + 1}`, excerpt: arg,
+        eventIdx: e.idx,
+        ts: e.ts,
+        label: `call #${i + 1}`,
+        excerpt: arg,
       })),
       firstEventIdx: evs[IDENTICAL_CALL_THRESHOLD - 1]?.idx ?? null,
       stopTrigger: `the ${IDENTICAL_CALL_THRESHOLD}rd identical ${tool} call`,
@@ -122,7 +123,8 @@ export function detectRepeatedFailures(run: Run): Finding[] {
   for (const [cmd, cs] of groups) {
     if (cs.length < SAME_FAILURE_THRESHOLD) continue;
     const first = cs[0] as Command;
-    const isCheck = first.category === "test" || first.category === "build" || first.category === "lint";
+    const isCheck =
+      first.category === "test" || first.category === "build" || first.category === "lint";
     findings.push({
       id: `loop.repeat_failure.${sha(cmd, 12)}`,
       title: `\`${short(cmd, 70)}\` failed ${cs.length}×`,
@@ -133,7 +135,9 @@ export function detectRepeatedFailures(run: Run): Finding[] {
         `Repeated identical failure is the clearest available signal that the agent's model of ` +
         `the problem is wrong and more attempts won't fix it.`,
       evidence: cs.slice(0, 5).map<Evidence>((c, i) => ({
-        eventIdx: c.eventIdx, ts: c.ts, label: `failure #${i + 1}`,
+        eventIdx: c.eventIdx,
+        ts: c.ts,
+        label: `failure #${i + 1}`,
         excerpt: short(c.stderrTail ?? c.stdoutTail, 240),
       })),
       firstEventIdx: cs[SAME_FAILURE_THRESHOLD - 1]?.eventIdx ?? null,
@@ -179,8 +183,12 @@ export function detectFileChurn(run: Run): Finding[] {
         ? `${base} rewritten ${edits.length}× (checked in between)`
         : `${base} rewritten ${edits.length}×`,
       severity: verified
-        ? edits.length < 7 ? "low" : "medium"
-        : edits.length < 7 ? "medium" : "high",
+        ? edits.length < 7
+          ? "low"
+          : "medium"
+        : edits.length < 7
+          ? "medium"
+          : "high",
       category: "loop",
       detail: verified
         ? `\`${path}\` was edited ${edits.length} times in one run, with ` +
@@ -191,7 +199,9 @@ export function detectFileChurn(run: Run): Finding[] {
           `check it in between. High churn with no feedback usually means the agent is guessing ` +
           `at a fix rather than diagnosing it — each edit is a hypothesis it never verified.`,
       evidence: edits.slice(0, 8).map<Evidence>((e, i) => ({
-        eventIdx: e.eventIdx, ts: e.ts, label: `edit #${i + 1} (${e.op})`,
+        eventIdx: e.eventIdx,
+        ts: e.ts,
+        label: `edit #${i + 1} (${e.op})`,
         excerpt: `+${e.linesAdded ?? 0}/-${e.linesRemoved ?? 0} lines`,
       })),
       firstEventIdx: edits[FILE_CHURN_THRESHOLD - 1]?.eventIdx ?? null,
@@ -215,8 +225,14 @@ export function detectReverts(run: Run): Finding[] {
 
   for (const e of run.fileEdits) {
     if (!e.applied || e.diffHunks.length === 0) continue;
-    const before = e.diffHunks.filter((l) => l.startsWith("-")).map((l) => l.slice(1)).join("\n");
-    const after = e.diffHunks.filter((l) => l.startsWith("+")).map((l) => l.slice(1)).join("\n");
+    const before = e.diffHunks
+      .filter((l) => l.startsWith("-"))
+      .map((l) => l.slice(1))
+      .join("\n");
+    const after = e.diffHunks
+      .filter((l) => l.startsWith("+"))
+      .map((l) => l.slice(1))
+      .join("\n");
     if (!before && !after) continue;
 
     const key = `${e.path}|${sha(before, 12)}|${sha(after, 12)}`;
@@ -239,7 +255,9 @@ export function detectReverts(run: Run): Finding[] {
         "between those two points produced no net change to the file and is the clearest form " +
         "of wasted effort a diff can show.",
       evidence: reverts.slice(0, 6).map<Evidence>((r) => ({
-        eventIdx: r.to, label: `reverts edit at event ${r.from}`, excerpt: r.path,
+        eventIdx: r.to,
+        label: `reverts edit at event ${r.from}`,
+        excerpt: r.path,
       })),
       firstEventIdx: Math.min(...reverts.map((r) => r.to)),
       stopTrigger: "an edit being undone",
@@ -281,7 +299,12 @@ export function detectStall(run: Run): Finding[] {
         `without changing anything else. Unless that tail was verification work, it is time and ` +
         `tokens spent on nothing.`,
       evidence: [
-        { eventIdx: lastEdit.eventIdx, ts: lastEdit.ts, label: "last file change", excerpt: lastEdit.path },
+        {
+          eventIdx: lastEdit.eventIdx,
+          ts: lastEdit.ts,
+          label: "last file change",
+          excerpt: lastEdit.path,
+        },
       ],
       firstEventIdx: lastEdit.eventIdx,
       stopTrigger: "the last file change, after which nothing else changed",

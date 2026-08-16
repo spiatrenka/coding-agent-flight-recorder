@@ -11,22 +11,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-
-import { analyze } from "../src/analyze/index.js";
 import { DEFAULT_PRICES, estimate, familyOf, priceFor } from "../src/analyze/cost.js";
+import { analyze } from "../src/analyze/index.js";
 import { classifyCommand, mutatesWorkingTree } from "../src/commands.js";
+import { OcBuilder } from "../src/demo/opencodeFixtures.js";
 import {
-  type Run,
   diffMayBeIncomplete,
   emptyUsage,
   isTrivialRun,
   netDiffLines,
+  type Run,
   unrecordedWrites,
 } from "../src/model.js";
 import { generate } from "../src/postmortem.js";
 import { OpenCodeSource } from "../src/sources/opencode.js";
 import { Store } from "../src/store.js";
-import { OcBuilder } from "../src/demo/opencodeFixtures.js";
 
 let root: string;
 let storage: string;
@@ -231,7 +230,8 @@ describe("trivial runs", () => {
       const run = trivial
         ? loadOnly(b.user(".").say("Ready."))
         : loadOnly(
-            b.user("Fix it")
+            b
+              .user("Fix it")
               .edit("/Users/dev/code/ledger-svc/src/a.ts", "a", "b")
               .bash("pytest -q", "3 passed"),
           );
@@ -338,7 +338,10 @@ describe("opencode importer", () => {
         .weird("telemetry-v3")
         .say("Done."),
     );
-    assert.ok(run.schemaDrift.some((d) => d.includes("telemetry-v3")), run.schemaDrift.join());
+    assert.ok(
+      run.schemaDrift.some((d) => d.includes("telemetry-v3")),
+      run.schemaDrift.join(),
+    );
     assert.ok(run.events.length >= 2, "the rest of the run survives");
   });
 

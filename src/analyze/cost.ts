@@ -17,7 +17,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { type Usage, totalTokens } from "../model.js";
+import { totalTokens, type Usage } from "../model.js";
 
 export interface Price {
   input: number;

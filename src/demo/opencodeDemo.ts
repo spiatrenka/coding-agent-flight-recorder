@@ -23,14 +23,17 @@ export function buildOpenCodeDemo(storage: string): string[] {
         "export function rate(cur: string) {\n  return fetchRate(cur);\n}",
         "const memo = new Map<string, number>();\nexport function rate(cur: string) {\n  if (!memo.has(cur)) memo.set(cur, fetchRate(cur));\n  return memo.get(cur)!;\n}",
       )
-      .bash("npm test -- fx", "PASS src/fx.test.ts\n\nTests: 14 passed, 14 total", )
+      .bash("npm test -- fx", "PASS src/fx.test.ts\n\nTests: 14 passed, 14 total")
       .say("Memoised per request. All 14 fx tests pass.", { cost: 0.31 })
       .writeTo(),
   );
 
   // Shell-only work: no edit tool ran, but the tree changed anyway.
   out.push(
-    new OcBuilder(storage, { sessionId: "ses_demo00000000000000002", start: Date.parse("2026-08-14T11:00:00Z") })
+    new OcBuilder(storage, {
+      sessionId: "ses_demo00000000000000002",
+      start: Date.parse("2026-08-14T11:00:00Z"),
+    })
       .withTitle("Regenerate the protobuf stubs")
       .withSummary(6, 412, 88)
       .user("Regenerate the protobuf stubs from the updated schema.")
@@ -42,7 +45,10 @@ export function buildOpenCodeDemo(storage: string): string[] {
 
   // Risky: a blocked destructive command plus a credential file read.
   out.push(
-    new OcBuilder(storage, { sessionId: "ses_demo00000000000000003", start: Date.parse("2026-08-14T13:30:00Z") })
+    new OcBuilder(storage, {
+      sessionId: "ses_demo00000000000000003",
+      start: Date.parse("2026-08-14T13:30:00Z"),
+    })
       .withTitle("Reset the local environment")
       .user("My local env is broken, reset it and start clean.")
       .bash("cat .env", "DATABASE_URL=postgres://user:hunter2@localhost/ledger")
@@ -70,7 +76,10 @@ export function buildOpenCodeDemo(storage: string): string[] {
         `await sleep(${100 + i * 100})`,
         `await sleep(${200 + i * 100})`,
       )
-      .bash("npm test -- settle", "FAIL test/settle.test.ts\n  ● settlement › batches\n\n    AssertionError: expected 3 to equal 4");
+      .bash(
+        "npm test -- settle",
+        "FAIL test/settle.test.ts\n  ● settlement › batches\n\n    AssertionError: expected 3 to equal 4",
+      );
   }
   loop.say("Still failing. The timing assumption may not be the real problem.");
   out.push(loop.writeTo());

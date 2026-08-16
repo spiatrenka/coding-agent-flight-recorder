@@ -1,33 +1,44 @@
 #!/usr/bin/env node
 /** flightrec command line. */
 
-// node:sqlite is stable enough for a local single-writer store, but Node emits an
-// experimental warning per process. Silence just that one; keep every other warning.
-process.removeAllListeners("warning");
-process.on("warning", (w) => {
-  if (!(w.name === "ExperimentalWarning" && w.message.includes("SQLite"))) console.warn(w);
-});
-
 import { pathToFileURL } from "node:url";
 
 import { ingest } from "./ingest.js";
 import type { Label } from "./model.js";
 import { serve } from "./server.js";
 import { availableSources } from "./sources/index.js";
-import { Store, defaultDbPath } from "./store.js";
+import { defaultDbPath, Store } from "./store.js";
 
 const LABEL_MARK: Record<Label, string> = {
-  productive: "+", questionable: "?", wasteful: "~", risky: "!",
+  productive: "+",
+  questionable: "?",
+  wasteful: "~",
+  risky: "!",
 };
 
-interface Args {
+/**
+ * node:sqlite is stable enough for a local single-writer store, but Node emits an
+ * experimental warning per process. Silence just that one; keep every other warning.
+ *
+ * Called from the entry guard rather than at import time: as a module side effect
+ * it stripped warning listeners from any process that merely imported this file,
+ * which is not a CLI's business to do to its callers.
+ */
+function silenceSqliteWarning(): void {
+  process.removeAllListeners("warning");
+  process.on("warning", (w) => {
+    if (!(w.name === "ExperimentalWarning" && w.message.includes("SQLite"))) console.warn(w);
+  });
+}
+
+export interface Args {
   cmd: string;
   db: string;
   flags: Map<string, string | true>;
   positional: string[];
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseArgs(argv: string[]): Args {
   const flags = new Map<string, string | true>();
   const positional: string[] = [];
   let cmd = "";
@@ -38,8 +49,10 @@ function parseArgs(argv: string[]): Args {
       const [k, inline] = a.slice(2).split("=", 2);
       const next = argv[i + 1];
       if (inline !== undefined) flags.set(k as string, inline);
-      else if (next && !next.startsWith("-")) { flags.set(k as string, next); i++; }
-      else flags.set(k as string, true);
+      else if (next && !next.startsWith("-")) {
+        flags.set(k as string, next);
+        i++;
+      } else flags.set(k as string, true);
     } else if (a === "-v") {
       flags.set("verbose", true);
     } else if (!cmd) {
@@ -136,9 +149,7 @@ function cmdList(args: Args): number {
     : store.listRuns({ ...opts, limit: 100000, includeTrivial: true }).length -
       store.listRuns({ ...opts, limit: 100000 }).length;
   const note = hidden > 0 ? `  (${hidden} trivial hidden — --all to show)` : "";
-  console.log(
-    `\n${runs.length} run(s).${note}  + productive  ? questionable  ~ wasteful  ! risky`,
-  );
+  console.log(`\n${runs.length} run(s).${note}  + productive  ? questionable  ~ wasteful  ! risky`);
   store.close();
   return 0;
 }
@@ -219,12 +230,18 @@ Global:
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
   switch (args.cmd) {
-    case "ingest": return cmdIngest(args);
-    case "list": return cmdList(args);
-    case "report": return cmdReport(args);
-    case "serve": return cmdServe(args);
-    case "stats": return cmdStats(args);
-    case "demo": return cmdDemo(args);
+    case "ingest":
+      return cmdIngest(args);
+    case "list":
+      return cmdList(args);
+    case "report":
+      return cmdReport(args);
+    case "serve":
+      return cmdServe(args);
+    case "stats":
+      return cmdStats(args);
+    case "demo":
+      return cmdDemo(args);
     default:
       console.log(USAGE);
       return args.cmd ? 1 : 0;
@@ -232,6 +249,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  silenceSqliteWarning();
   void main().then((code) => {
     if (code !== 0) process.exitCode = code;
   });

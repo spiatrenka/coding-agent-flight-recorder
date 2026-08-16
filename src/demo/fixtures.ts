@@ -27,7 +27,9 @@ export class Builder {
   private prev: string | null = null;
   private n = 0;
 
-  constructor(opts: { sessionId?: string; start?: Date; cwd?: string; branch?: string; model?: string } = {}) {
+  constructor(
+    opts: { sessionId?: string; start?: Date; cwd?: string; branch?: string; model?: string } = {},
+  ) {
     this.sid = opts.sessionId ?? randomUUID();
     this.t = opts.start ?? new Date("2026-08-14T09:00:00Z");
     this.cwd = opts.cwd ?? CWD;
@@ -43,9 +45,16 @@ export class Builder {
   private base(type: string): Json {
     const uuid = randomUUID();
     const d: Json = {
-      parentUuid: this.prev, isSidechain: false, userType: "external",
-      cwd: this.cwd, sessionId: this.sid, version: VERSION,
-      gitBranch: this.branch, type, uuid, timestamp: this.tick(),
+      parentUuid: this.prev,
+      isSidechain: false,
+      userType: "external",
+      cwd: this.cwd,
+      sessionId: this.sid,
+      version: VERSION,
+      gitBranch: this.branch,
+      type,
+      uuid,
+      timestamp: this.tick(),
     };
     this.prev = uuid;
     return d;
@@ -53,8 +62,10 @@ export class Builder {
 
   private usage(out = 180): Json {
     return {
-      input_tokens: 4, output_tokens: out,
-      cache_creation_input_tokens: 1200, cache_read_input_tokens: 24000,
+      input_tokens: 4,
+      output_tokens: out,
+      cache_creation_input_tokens: 1200,
+      cache_read_input_tokens: 24000,
     };
   }
 
@@ -69,8 +80,39 @@ export class Builder {
   say(text: string): this {
     const d = this.base("assistant");
     d["message"] = {
-      id: `msg_${this.n++}`, type: "message", role: "assistant", model: this.model,
-      content: [{ type: "text", text }], usage: this.usage(),
+      id: `msg_${this.n++}`,
+      type: "message",
+      role: "assistant",
+      model: this.model,
+      content: [{ type: "text", text }],
+      usage: this.usage(),
+    };
+    this.lines.push(d);
+    return this;
+  }
+
+  /**
+   * One assistant turn that consumed a large amount of context.
+   *
+   * Reaching a cost threshold through ordinary `say()` calls would take on the
+   * order of a hundred and seventy messages, which makes the resulting fixture
+   * unreadable and slow. A single turn with a big cache-read counter reaches the
+   * same modelled cost and keeps the fixture legible.
+   */
+  burn(cacheReadTokens: number, text = "Still working through the context."): this {
+    const d = this.base("assistant");
+    d["message"] = {
+      id: `msg_${this.n++}`,
+      type: "message",
+      role: "assistant",
+      model: this.model,
+      content: [{ type: "text", text }],
+      usage: {
+        input_tokens: 4,
+        output_tokens: 180,
+        cache_creation_input_tokens: 1200,
+        cache_read_input_tokens: cacheReadTokens,
+      },
     };
     this.lines.push(d);
     return this;
@@ -80,8 +122,12 @@ export class Builder {
     const tid = `toolu_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const d = this.base("assistant");
     d["message"] = {
-      id: `msg_${this.n++}`, type: "message", role: "assistant", model: this.model,
-      content: [{ type: "tool_use", id: tid, name: tool, input }], usage: this.usage(90),
+      id: `msg_${this.n++}`,
+      type: "message",
+      role: "assistant",
+      model: this.model,
+      content: [{ type: "tool_use", id: tid, name: tool, input }],
+      usage: this.usage(90),
     };
     this.lines.push(d);
     return tid;
@@ -105,30 +151,45 @@ export class Builder {
   edit(path: string, oldStr: string, newStr: string): this {
     const tid = this.call("Edit", { file_path: path, old_string: oldStr, new_string: newStr });
     const hunk = {
-      oldStart: 40, oldLines: oldStr.split("\n").length,
-      newStart: 40, newLines: newStr.split("\n").length,
-      lines: [
-        ...oldStr.split("\n").map((l) => `-${l}`),
-        ...newStr.split("\n").map((l) => `+${l}`),
-      ],
+      oldStart: 40,
+      oldLines: oldStr.split("\n").length,
+      newStart: 40,
+      newLines: newStr.split("\n").length,
+      lines: [...oldStr.split("\n").map((l) => `-${l}`), ...newStr.split("\n").map((l) => `+${l}`)],
     };
     return this.result(tid, `The file ${path} has been updated.`, false, {
-      filePath: path, oldString: oldStr, newString: newStr,
-      structuredPatch: [hunk], userModified: false,
+      filePath: path,
+      oldString: oldStr,
+      newString: newStr,
+      structuredPatch: [hunk],
+      userModified: false,
     });
   }
 
   write(path: string, content: string): this {
     const tid = this.call("Write", { file_path: path, content });
     return this.result(tid, `File created successfully at: ${path}`, false, {
-      type: "create", filePath: path, content, structuredPatch: [],
+      type: "create",
+      filePath: path,
+      content,
+      structuredPatch: [],
     });
   }
 
   bash(
     cmd: string,
-    { stdout = "", stderr = "", ok = true, denied = false, exitCode }: {
-      stdout?: string; stderr?: string; ok?: boolean; denied?: boolean; exitCode?: number;
+    {
+      stdout = "",
+      stderr = "",
+      ok = true,
+      denied = false,
+      exitCode,
+    }: {
+      stdout?: string;
+      stderr?: string;
+      ok?: boolean;
+      denied?: boolean;
+      exitCode?: number;
     } = {},
   ): this {
     const tid = this.call("Bash", { command: cmd, description: cmd.slice(0, 40) });
@@ -196,7 +257,8 @@ export function fixtureProductive(): Builder {
   );
   b.bash("npm test -- src/refunds", {
     stdout: "Test Suites: 1 passed, 1 total\nTests:       9 passed, 9 total",
-    ok: true, exitCode: 0,
+    ok: true,
+    exitCode: 0,
   });
   b.bash("npx tsc --noEmit", { ok: true, exitCode: 0 });
   b.say("Fixed the off-by-one and added a boundary test. All 9 tests pass and typecheck is clean.");
@@ -251,7 +313,11 @@ export function fixtureRisky(): Builder {
   );
   b.write("/Users/dev/.zshrc_backup", "export PATH=$PATH:/usr/local/bin\n");
   b.bash("rm -rf node_modules dist", { ok: true, exitCode: 0 });
-  b.bash("git reset --hard HEAD~1", { stdout: "HEAD is now at 8f21ac3 wip", ok: true, exitCode: 0 });
+  b.bash("git reset --hard HEAD~1", {
+    stdout: "HEAD is now at 8f21ac3 wip",
+    ok: true,
+    exitCode: 0,
+  });
   b.bash("git push --force origin staging", { denied: true });
   b.say("Staging config is in place.");
   return b;
@@ -290,8 +356,12 @@ export function fixtureLongNoDiff(): Builder {
   });
   b.user("Why is the settlement job slow in production?");
   for (const f of [
-    "jobs/settlement.ts", "db/queries/ledger.ts", "db/indexes.sql",
-    "jobs/scheduler.ts", "lib/batch.ts", "config/db.ts",
+    "jobs/settlement.ts",
+    "db/queries/ledger.ts",
+    "db/indexes.sql",
+    "jobs/scheduler.ts",
+    "lib/batch.ts",
+    "config/db.ts",
   ]) {
     b.read(`/Users/dev/code/payments-api/src/${f}`);
     b.idle(2);
@@ -309,7 +379,11 @@ export function fixtureLongNoDiff(): Builder {
 export function fixtureTwoSegments(): Builder {
   const b = new Builder({ start: new Date("2026-08-13T10:00:00Z") });
   b.user("Rename the `TxnKind` enum to `TransactionKind` everywhere.");
-  b.edit("/Users/dev/code/payments-api/src/types.ts", "export enum TxnKind {", "export enum TransactionKind {");
+  b.edit(
+    "/Users/dev/code/payments-api/src/types.ts",
+    "export enum TxnKind {",
+    "export enum TransactionKind {",
+  );
   b.bash("rg -l 'TxnKind' src/", { stdout: "src/api/transactions.ts\nsrc/jobs/settlement.ts" });
   b.edit("/Users/dev/code/payments-api/src/api/transactions.ts", "TxnKind", "TransactionKind");
   b.edit("/Users/dev/code/payments-api/src/jobs/settlement.ts", "TxnKind", "TransactionKind");
@@ -327,6 +401,92 @@ export function fixtureTwoSegments(): Builder {
   return b;
 }
 
+/** An edit undone later in the same run: A→B then B→A on one file. */
+export function fixtureRevert(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T14:00:00Z") });
+  const path = "/Users/dev/code/payments-api/src/lib/retry.ts";
+  b.user("The retry backoff is too aggressive, halve it.");
+  b.edit(path, "const BACKOFF_MS = 2000;", "const BACKOFF_MS = 1000;");
+  b.bash("npm test -- retry", { stdout: "2 failing", ok: false });
+  b.say("That broke two timing tests. Putting it back.");
+  b.edit(path, "const BACKOFF_MS = 1000;", "const BACKOFF_MS = 2000;");
+  b.say("Reverted. The backoff is load-bearing for the flaky upstream.");
+  return b;
+}
+
+/**
+ * A long tail of activity after the last file change.
+ *
+ * Every idle gap stays under thirty minutes on purpose: exceeding
+ * `FLIGHTREC_IDLE_GAP` would split this into two runs and the tail — the whole
+ * point of the fixture — would land in a segment with no edit in it.
+ */
+export function fixtureStall(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T09:00:00Z") });
+  b.user("Fix the currency rounding in the invoice totals.");
+  b.edit(
+    "/Users/dev/code/payments-api/src/invoice/total.ts",
+    "Math.round(cents / 100)",
+    "Math.round(cents) / 100",
+  );
+  b.say("Fixed. Let me double-check the surrounding code.");
+  b.idle(7);
+  for (const f of [
+    "invoice/line.ts",
+    "invoice/tax.ts",
+    "invoice/discount.ts",
+    "money/format.ts",
+    "money/currency.ts",
+    "money/round.ts",
+    "api/invoices.ts",
+    "db/invoice.ts",
+  ]) {
+    b.read(`/Users/dev/code/payments-api/src/${f}`);
+    b.idle(1);
+  }
+  b.say("The rest of the money handling looks consistent with the fix. Nothing else to change.");
+  return b;
+}
+
+/** Ten files changed in response to a one-line request. */
+export function fixtureWideDiff(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T11:00:00Z") });
+  b.user("Fix the typo in the error message.");
+  for (let i = 0; i < 10; i++) {
+    b.edit(
+      `/Users/dev/code/payments-api/src/handlers/h${i}.ts`,
+      "throw new Error('recieved')",
+      "throw new Error('received')",
+    );
+  }
+  b.say("Fixed the typo, and tidied the surrounding error handling while I was in there.");
+  return b;
+}
+
+/** A large diff with nothing green to back it. */
+export function fixtureBigDiff(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T12:00:00Z") });
+  b.user("Migrate the settlement module off the legacy money helper.");
+  const old = Array.from({ length: 120 }, (_, i) => `  legacyMoney.add(row[${i}]);`).join("\n");
+  const neu = Array.from({ length: 120 }, (_, i) => `  Money.of(row[${i}]).add();`).join("\n");
+  b.edit("/Users/dev/code/payments-api/src/settlement/apply.ts", old, neu);
+  b.edit("/Users/dev/code/payments-api/src/settlement/batch.ts", old, neu);
+  b.say("Migrated. I have not run the suite.");
+  return b;
+}
+
+/** Known spend with nothing to show for it on disk. */
+export function fixtureExpensiveNoDiff(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T16:00:00Z") });
+  b.user("Work out why the reconciliation totals drift by a few cents each month.");
+  b.read("/Users/dev/code/payments-api/src/recon/compare.ts");
+  b.burn(6_000_000, "Reading the reconciliation history to find where the drift starts.");
+  b.read("/Users/dev/code/payments-api/src/recon/report.ts");
+  b.burn(6_000_000, "Still correlating the monthly deltas.");
+  b.say("I could not isolate it from the code alone. It likely needs production data.");
+  return b;
+}
+
 export const ALL: Record<string, () => Builder> = {
   productive: fixtureProductive,
   wasteful: fixtureWasteful,
@@ -334,6 +494,11 @@ export const ALL: Record<string, () => Builder> = {
   unverifiedClaim: fixtureUnverifiedClaim,
   longNoDiff: fixtureLongNoDiff,
   twoSegments: fixtureTwoSegments,
+  revert: fixtureRevert,
+  stall: fixtureStall,
+  wideDiff: fixtureWideDiff,
+  bigDiff: fixtureBigDiff,
+  expensiveNoDiff: fixtureExpensiveNoDiff,
 };
 
 export function buildAll(root: string): Record<string, string> {

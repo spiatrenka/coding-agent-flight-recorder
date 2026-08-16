@@ -18,7 +18,14 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { Analysis } from "./analyze/index.js";
-import { type Label, type Run, filesTouched, linesAdded, linesRemoved, totalTokens } from "./model.js";
+import {
+  filesTouched,
+  type Label,
+  linesAdded,
+  linesRemoved,
+  type Run,
+  totalTokens,
+} from "./model.js";
 import type { Postmortem } from "./postmortem.js";
 
 const SCHEMA = `
@@ -180,15 +187,35 @@ export class Store {
             analysis_json=excluded.analysis_json, postmortem_json=excluded.postmortem_json`,
       )
       .run(
-        run.runId, run.source, run.sessionId, run.segment,
-        run.projectPath, run.gitBranch, run.startedAt, run.endedAt, run.durationS, run.goal,
-        analysis.label, analysis.labelReason, analysis.maxSeverity,
-        analysis.verification.status, filesTouched(run).length,
-        linesAdded(run), linesRemoved(run), totalTokens(run.usage),
-        run.usage.costUsd, run.usage.costUsd === null ? 0 : 1,
-        analysis.findings.length, run.events.length, analysis.trivial ? 1 : 0,
-        run.sourceFile, hash, now,
-        trace, JSON.stringify(analysis), JSON.stringify(pm),
+        run.runId,
+        run.source,
+        run.sessionId,
+        run.segment,
+        run.projectPath,
+        run.gitBranch,
+        run.startedAt,
+        run.endedAt,
+        run.durationS,
+        run.goal,
+        analysis.label,
+        analysis.labelReason,
+        analysis.maxSeverity,
+        analysis.verification.status,
+        filesTouched(run).length,
+        linesAdded(run),
+        linesRemoved(run),
+        totalTokens(run.usage),
+        run.usage.costUsd,
+        run.usage.costUsd === null ? 0 : 1,
+        analysis.findings.length,
+        run.events.length,
+        analysis.trivial ? 1 : 0,
+        run.sourceFile,
+        hash,
+        now,
+        trace,
+        JSON.stringify(analysis),
+        JSON.stringify(pm),
       );
 
     this.db.prepare("DELETE FROM findings WHERE run_id=?").run(run.runId);
@@ -205,27 +232,40 @@ export class Store {
   }
 
   isUnchanged(path: string, mtime: number, size: number): boolean {
-    const row = this.db
-      .prepare("SELECT mtime, size FROM ingest_log WHERE path=?")
-      .get(path) as { mtime: number; size: number } | undefined;
+    const row = this.db.prepare("SELECT mtime, size FROM ingest_log WHERE path=?").get(path) as
+      | { mtime: number; size: number }
+      | undefined;
     return Boolean(row && Math.abs(row.mtime - mtime) < 0.001 && row.size === size);
   }
 
   // -- reads -------------------------------------------------------------
-  listRuns(opts: {
-    limit?: number; project?: string | null; label?: string | null; source?: string | null;
-    includeTrivial?: boolean;
-  } = {}): RunSummary[] {
-    let q =
-      `SELECT run_id, source, session_id, segment, project_path, git_branch, started_at,
+  listRuns(
+    opts: {
+      limit?: number;
+      project?: string | null;
+      label?: string | null;
+      source?: string | null;
+      includeTrivial?: boolean;
+    } = {},
+  ): RunSummary[] {
+    let q = `SELECT run_id, source, session_id, segment, project_path, git_branch, started_at,
               ended_at, duration_s, goal, label, label_reason, max_severity,
               verification_status, files_changed, lines_added, lines_removed, total_tokens,
               cost_usd, cost_known, n_findings, n_events, trivial FROM runs WHERE 1=1`;
     const args: Array<string | number> = [];
     if (!opts.includeTrivial) q += " AND COALESCE(trivial,0) = 0";
-    if (opts.project) { q += " AND project_path = ?"; args.push(opts.project); }
-    if (opts.label) { q += " AND label = ?"; args.push(opts.label); }
-    if (opts.source) { q += " AND source = ?"; args.push(opts.source); }
+    if (opts.project) {
+      q += " AND project_path = ?";
+      args.push(opts.project);
+    }
+    if (opts.label) {
+      q += " AND label = ?";
+      args.push(opts.label);
+    }
+    if (opts.source) {
+      q += " AND source = ?";
+      args.push(opts.source);
+    }
     q += " ORDER BY COALESCE(started_at,'') DESC LIMIT ?";
     args.push(opts.limit ?? 200);
     return this.db.prepare(q).all(...args) as unknown as RunSummary[];
@@ -234,8 +274,12 @@ export class Store {
   getRun(runId: string): StoredRun | null {
     const row = this.db.prepare("SELECT * FROM runs WHERE run_id=?").get(runId) as
       | (RunSummary & {
-          trace_json: string; analysis_json: string; postmortem_json: string;
-          source_file: string | null; content_hash: string; ingested_at: string;
+          trace_json: string;
+          analysis_json: string;
+          postmortem_json: string;
+          source_file: string | null;
+          content_hash: string;
+          ingested_at: string;
         })
       | undefined;
     if (!row) return null;

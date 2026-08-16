@@ -1,8 +1,10 @@
 /** Discover transcripts → parse → analyse → postmortem → store. */
 
 import { analyze } from "./analyze/index.js";
+import type { Run } from "./model.js";
 import { generate } from "./postmortem.js";
 import { availableSources, get as getSource } from "./sources/index.js";
+import type { DiscoveredFile } from "./sources/types.js";
 import type { Store } from "./store.js";
 
 export interface IngestResult {
@@ -26,17 +28,20 @@ export interface IngestOptions {
 export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
   const started = Date.now();
   const res: IngestResult = {
-    filesSeen: 0, filesParsed: 0, filesSkipped: 0, runsStored: 0,
-    errors: [], elapsedS: 0, sourcesUsed: [],
+    filesSeen: 0,
+    filesParsed: 0,
+    filesSkipped: 0,
+    runsStored: 0,
+    errors: [],
+    elapsedS: 0,
+    sourcesUsed: [],
   };
   const cutoff = opts.sinceDays ? Date.now() / 1000 - opts.sinceDays * 86400 : null;
-  const active = opts.sourceNames?.length
-    ? opts.sourceNames.map(getSource)
-    : availableSources();
+  const active = opts.sourceNames?.length ? opts.sourceNames.map(getSource) : availableSources();
   res.sourcesUsed = active.map((s) => s.name);
 
   for (const src of active) {
-    let found;
+    let found: DiscoveredFile[];
     try {
       found = src.discover();
     } catch (err) {
@@ -53,7 +58,7 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
         continue;
       }
 
-      let runs;
+      let runs: Run[];
       try {
         runs = src.load(item.path);
       } catch (err) {

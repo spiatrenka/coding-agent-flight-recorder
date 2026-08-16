@@ -247,18 +247,18 @@ td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
       <div class="sub" id="sub">loading…</div>
     </div>
     <div class="railtools" id="filters">
-      <button class="chip" data-label="" aria-pressed="true">all</button>
-      <button class="chip v-productive" data-label="productive" aria-pressed="false">productive</button>
-      <button class="chip v-questionable" data-label="questionable" aria-pressed="false">questionable</button>
-      <button class="chip v-wasteful" data-label="wasteful" aria-pressed="false">wasteful</button>
-      <button class="chip v-risky" data-label="risky" aria-pressed="false">risky</button>
-      <button class="chip ghost" id="rescan">rescan</button>
-      <button class="chip ghost" id="themetoggle" title="switch theme"
+      <button type="button" class="chip" data-label="" aria-pressed="true">all</button>
+      <button type="button" class="chip v-productive" data-label="productive" aria-pressed="false">productive</button>
+      <button type="button" class="chip v-questionable" data-label="questionable" aria-pressed="false">questionable</button>
+      <button type="button" class="chip v-wasteful" data-label="wasteful" aria-pressed="false">wasteful</button>
+      <button type="button" class="chip v-risky" data-label="risky" aria-pressed="false">risky</button>
+      <button type="button" class="chip ghost" id="rescan">rescan</button>
+      <button type="button" class="chip ghost" id="themetoggle" title="switch theme"
               aria-label="switch theme">☾</button>
     </div>
     <div class="railtools" id="sourcefilters">
-      <button class="chip" data-source="" aria-pressed="true">all sources</button>
-      <button class="chip ghost" id="showtrivial" aria-pressed="false">show trivial</button>
+      <button type="button" class="chip" data-source="" aria-pressed="true">all sources</button>
+      <button type="button" class="chip ghost" id="showtrivial" aria-pressed="false">show trivial</button>
     </div>
     <div class="runlist" id="runlist"></div>
   </aside>
@@ -281,7 +281,6 @@ function dur(s){
 }
 const when = t => t ? new Date(t).toLocaleString(undefined,
   {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"}) : "—";
-const money = r => r.cost_known ? "$" + Number(r.cost_usd).toFixed(2) : "?";
 
 /* ---------------- rail ---------------- */
 async function loadRuns(){
@@ -312,10 +311,10 @@ function emptyState(){
 function renderSourceChips(){
   const el = $("#sourcefilters");
   const seen = [...new Set(RUNS.map(r => r.source))].sort();
-  if (seen.length < 2){ el.querySelectorAll("[data-source]:not([data-source=''])").forEach(n => n.remove()); return; }
+  if (seen.length < 2){ el.querySelectorAll("[data-source]:not([data-source=''])").forEach((n) => { n.remove(); }); return; }
   const keep = el.querySelector("[data-source='']");
   if (!keep) return;
-  el.querySelectorAll("[data-source]:not([data-source=''])").forEach(n => n.remove());
+  el.querySelectorAll("[data-source]:not([data-source=''])").forEach((n) => { n.remove(); });
   for (const s of seen){
     const b = document.createElement("button");
     b.className = "chip"; b.dataset.source = s; b.textContent = s.replace("_", " ");
@@ -338,7 +337,7 @@ function renderRail(){
        as text — alongside cost, files and tokens — was five redundant chips
        per row in a list whose only job is "which of these do I open". */
     const attention = r.max_severity === "high" ? '<span class="flag" title="high-severity finding">!</span>' : "";
-    html += `<button class="run v-${esc(r.label)}" data-id="${esc(r.run_id)}"
+    html += `<button type="button" class="run v-${esc(r.label)}" data-id="${esc(r.run_id)}"
         aria-current="${r.run_id === CURRENT}">
       <div class="goal">${esc(r.goal || "no prompt in this segment")}</div>
       <div class="meta">
@@ -347,15 +346,17 @@ function renderRail(){
       </div></button>`;
   }
   list.innerHTML = html;
-  list.querySelectorAll(".run").forEach(b =>
-    b.onclick = () => selectRun(b.dataset.id));
+  list.querySelectorAll(".run").forEach((b) => {
+    b.onclick = () => selectRun(b.dataset.id);
+  });
 }
 
 $("#filters").onclick = e => {
   const b = e.target.closest(".chip"); if (!b || b.id === "rescan") return;
   FILTER = b.dataset.label;
-  $("#filters").querySelectorAll("[data-label]").forEach(c =>
-    c.setAttribute("aria-pressed", String(c === b)));
+  $("#filters").querySelectorAll("[data-label]").forEach((c) => {
+    c.setAttribute("aria-pressed", String(c === b));
+  });
   renderRail();
 };
 $("#sourcefilters").onclick = e => {
@@ -369,8 +370,9 @@ $("#sourcefilters").onclick = e => {
   }
   if (b.dataset.source === undefined) return;
   SOURCE = b.dataset.source;
-  $("#sourcefilters").querySelectorAll("[data-source]").forEach(c =>
-    c.setAttribute("aria-pressed", String(c === b)));
+  $("#sourcefilters").querySelectorAll("[data-source]").forEach((c) => {
+    c.setAttribute("aria-pressed", String(c === b));
+  });
   renderRail();
 };
 $("#themetoggle").onclick = () => {
@@ -449,12 +451,13 @@ function renderRun(d){
 }
 
 const tabBtn = (id, label, n) =>
-  `<button class="tab" data-tab="${id}" aria-selected="false">${label}${
+  `<button type="button" class="tab" data-tab="${id}" aria-selected="false">${label}${
     n !== undefined ? `<span class="n">${n}</span>` : ""}</button>`;
 
 function showTab(name, d){
-  document.querySelectorAll(".tab").forEach(b =>
-    b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+  document.querySelectorAll(".tab").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.tab === name));
+  });
   const P = {postmortem, timeline, files, commands, findings, firewall};
   $("#panel").innerHTML = P[name](d);
   if (name === "postmortem") wireCopy(d);
@@ -476,8 +479,8 @@ function tape(t, a){
     return ((Date.parse(ev.ts) - t0) / span) * (W - 8) + 4;
   };
   const editAt = {}, cmdAt = {};
-  t.fileEdits.forEach(e => editAt[e.eventIdx] = e);
-  t.commands.forEach(c => cmdAt[c.eventIdx] = c);
+  t.fileEdits.forEach((e) => { editAt[e.eventIdx] = e; });
+  t.commands.forEach((c) => { cmdAt[c.eventIdx] = c; });
 
   let marks = "";
   for (const ev of evs){
@@ -639,7 +642,7 @@ function postmortem(d){
     <p style="color:var(--muted);font-size:12.5px">Generated ${esc(pm.generatedAt)} by
       <span class="mono">${esc(pm.generator)}</span>. No model was called: this postmortem is a
       deterministic rendering of the trace, so it is identical every time it is regenerated.</p>
-    <button class="copy" id="copymd">copy as markdown</button></div>`;
+    <button type="button" class="copy" id="copymd">copy as markdown</button></div>`;
 }
 
 function wireCopy(d){
@@ -656,8 +659,8 @@ function timeline(d){
   LAST = d;
   const t = d.trace;
   const editAt = {}, cmdAt = {};
-  t.fileEdits.forEach(e => editAt[e.eventIdx] = e);
-  t.commands.forEach(c => cmdAt[c.eventIdx] = c);
+  t.fileEdits.forEach((e) => { editAt[e.eventIdx] = e; });
+  t.commands.forEach((c) => { cmdAt[c.eventIdx] = c; });
 
   const rows = t.events.map(ev => {
     const ed = editAt[ev.idx], cm = cmdAt[ev.idx];
@@ -749,17 +752,19 @@ function findings(d){
       <h4><span class="sev">${esc(f.severity)}</span>${esc(f.title)}</h4>
       <p>${esc(f.detail)}</p>
       ${f.evidence.length ? `<ul class="evlist">${f.evidence.map(e =>
-        `<li><button data-jump="${e.eventIdx}">event ${e.eventIdx}</button>
+        `<li><button type="button" data-jump="${e.eventIdx}">event ${e.eventIdx}</button>
           ${e.label ? esc(e.label) + " — " : ""}${esc((e.excerpt||"").slice(0,180))}</li>`
       ).join("")}</ul>` : ""}
     </div>`).join("")}</div>`;
 }
 
 function wireJump(){
-  document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => {
-    showTab("timeline", LAST);
-    const el = document.getElementById("ev-" + b.dataset.jump);
-    if (el){ el.scrollIntoView({block:"center"}); el.classList.add("hl"); }
+  document.querySelectorAll("[data-jump]").forEach((b) => {
+    b.onclick = () => {
+      showTab("timeline", LAST);
+      const el = document.getElementById("ev-" + b.dataset.jump);
+      if (el){ el.scrollIntoView({block:"center"}); el.classList.add("hl"); }
+    };
   });
 }
 

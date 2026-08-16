@@ -5,9 +5,9 @@ import { OpenCodeSource } from "./opencode.js";
 import { CodexSource } from "./stubs.js";
 import type { Source } from "./types.js";
 
-export type { DiscoveredFile, Source } from "./types.js";
 export { ClaudeCodeSource } from "./claudeCode.js";
 export { OpenCodeSource } from "./opencode.js";
+export type { DiscoveredFile, Source } from "./types.js";
 
 const REGISTRY = new Map<string, Source>();
 

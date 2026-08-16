@@ -56,14 +56,8 @@ describe("check output parsing", () => {
   it("reads mocha, cargo and go", () => {
     assert.equal(parseCheckOutput("  12 passing (34ms)\n  0 failing")?.ok, true);
     assert.equal(parseCheckOutput("  9 passing (2s)\n  3 failing")?.ok, false);
-    assert.equal(
-      parseCheckOutput("test result: ok. 12 passed; 0 failed; 0 ignored")?.ok,
-      true,
-    );
-    assert.equal(
-      parseCheckOutput("test result: FAILED. 1 passed; 2 failed; 0 ignored")?.ok,
-      false,
-    );
+    assert.equal(parseCheckOutput("test result: ok. 12 passed; 0 failed; 0 ignored")?.ok, true);
+    assert.equal(parseCheckOutput("test result: FAILED. 1 passed; 2 failed; 0 ignored")?.ok, false);
     assert.equal(parseCheckOutput("ok  \tgithub.com/x/y\t0.42s")?.ok, true);
     assert.equal(parseCheckOutput("--- FAIL: TestThing (0.00s)\nFAIL\tpkg\t0.1s")?.ok, false);
   });

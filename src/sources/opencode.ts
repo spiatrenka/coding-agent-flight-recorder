@@ -29,21 +29,18 @@
  * when timestamps collide.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { parseCheckOutput } from "../checkOutput.js";
 import { classifyCommand, mutatesWorkingTree } from "../commands.js";
 import {
-  type Command,
   type EditOp,
-  type FileEdit,
-  type Run,
-  type TraceEvent,
   emptyUsage,
   makeRunId,
   parseTs,
+  type Run,
   secondsBetween,
   truncate,
 } from "../model.js";
@@ -58,8 +55,17 @@ const SHELL_TOOLS = new Set(["bash", "shell", "run_command"]);
 
 /** Part types we map. Anything else is recorded as drift, never dropped. */
 const KNOWN_PART_TYPES = new Set([
-  "text", "reasoning", "tool", "patch", "compaction",
-  "step-start", "step-finish", "file", "agent", "subtask", "snapshot",
+  "text",
+  "reasoning",
+  "tool",
+  "patch",
+  "compaction",
+  "step-start",
+  "step-finish",
+  "file",
+  "agent",
+  "subtask",
+  "snapshot",
 ]);
 
 type Json = Record<string, unknown>;
@@ -77,8 +83,7 @@ function num(v: unknown): number {
 export function storageDir(): string {
   const override = process.env["OPENCODE_STORAGE_DIR"];
   if (override) return override;
-  const base =
-    process.env["OPENCODE_DATA_DIR"] || join(homedir(), ".local", "share", "opencode");
+  const base = process.env["OPENCODE_DATA_DIR"] || join(homedir(), ".local", "share", "opencode");
   return join(base, "storage");
 }
 
@@ -256,7 +261,7 @@ export class OpenCodeSource implements Source {
         if (!KNOWN_PART_TYPES.has(ptype)) {
           drift.add(`unrecognised part type '${ptype}'`);
         }
-        idx = this.handlePart(run, part, ptype, role, model, ts, idx, drift);
+        idx = this.handlePart(run, part, ptype, role, model, ts, idx);
       }
     }
 
@@ -324,8 +329,13 @@ export class OpenCodeSource implements Source {
   }
 
   private handlePart(
-    run: Run, part: Json, ptype: string, role: string, model: string | null,
-    ts: string | null, idx: number, drift: Set<string>,
+    run: Run,
+    part: Json,
+    ptype: string,
+    role: string,
+    model: string | null,
+    ts: string | null,
+    idx: number,
   ): number {
     const partTs = timeOf(part, "start") ?? ts;
 
@@ -333,17 +343,26 @@ export class OpenCodeSource implements Source {
       const text = str(part["text"]);
       if (!text?.trim()) return idx;
       run.events.push({
-        idx: idx++, ts: partTs,
+        idx: idx++,
+        ts: partTs,
         kind: role === "user" ? "user_message" : "assistant_message",
-        role, text: truncate(text, 4000), model, rawType: "text",
+        role,
+        text: truncate(text, 4000),
+        model,
+        rawType: "text",
       });
       return idx;
     }
 
     if (ptype === "reasoning") {
       run.events.push({
-        idx: idx++, ts: partTs, kind: "thinking", role: "assistant",
-        text: truncate(part["text"], 2000), model, rawType: "reasoning",
+        idx: idx++,
+        ts: partTs,
+        kind: "thinking",
+        role: "assistant",
+        text: truncate(part["text"], 2000),
+        model,
+        rawType: "reasoning",
       });
       return idx;
     }
@@ -351,7 +370,10 @@ export class OpenCodeSource implements Source {
     if (ptype === "compaction") {
       run.compactions++;
       run.events.push({
-        idx: idx++, ts: partTs, kind: "compaction", rawType: "compaction",
+        idx: idx++,
+        ts: partTs,
+        kind: "compaction",
+        rawType: "compaction",
         text: part["auto"] ? "context compacted automatically" : "context compacted",
       });
       return idx;
@@ -366,7 +388,11 @@ export class OpenCodeSource implements Source {
   }
 
   private handleTool(
-    run: Run, part: Json, model: string | null, ts: string | null, idx: number,
+    run: Run,
+    part: Json,
+    model: string | null,
+    ts: string | null,
+    idx: number,
   ): number {
     const tool = str(part["tool"]) ?? "unknown";
     const state = isRecord(part["state"]) ? part["state"] : {};
@@ -380,15 +406,25 @@ export class OpenCodeSource implements Source {
 
     const callIdx = idx;
     run.events.push({
-      idx: idx++, ts, kind: "tool_call", role: "assistant",
-      toolName: tool, toolUseId: callId, toolInput: input,
-      model, rawType: "tool",
+      idx: idx++,
+      ts,
+      kind: "tool_call",
+      role: "assistant",
+      toolName: tool,
+      toolUseId: callId,
+      toolInput: input,
+      model,
+      rawType: "tool",
     });
 
     const output = str(state["output"]);
     run.events.push({
-      idx: idx++, ts, kind: "tool_result", role: "user",
-      toolName: tool, toolUseId: callId,
+      idx: idx++,
+      ts,
+      kind: "tool_result",
+      role: "user",
+      toolName: tool,
+      toolUseId: callId,
       ok: denied ? false : ok,
       error: errText ? truncate(errText, 1500) : null,
       text: truncate(redact(output ?? errText ?? ""), 3000),
@@ -406,8 +442,14 @@ export class OpenCodeSource implements Source {
   }
 
   private recordEdit(
-    run: Run, tool: string, input: Json, state: Json, eventIdx: number,
-    ts: string | null, applied: boolean, callId: string | null,
+    run: Run,
+    tool: string,
+    input: Json,
+    state: Json,
+    eventIdx: number,
+    ts: string | null,
+    applied: boolean,
+    callId: string | null,
   ): void {
     const path = str(input["filePath"]) ?? str(input["path"]) ?? "unknown";
     const meta = isRecord(state["metadata"]) ? state["metadata"] : {};
@@ -426,16 +468,27 @@ export class OpenCodeSource implements Source {
     }
 
     run.fileEdits.push({
-      eventIdx, ts, path, op,
-      linesAdded: added, linesRemoved: removed,
-      toolUseId: callId, applied,
+      eventIdx,
+      ts,
+      path,
+      op,
+      linesAdded: added,
+      linesRemoved: removed,
+      toolUseId: callId,
+      applied,
       diffHunks: buildHunks(input),
     });
   }
 
   private recordCommand(
-    run: Run, input: Json, output: string | null, errText: string | null,
-    eventIdx: number, ts: string | null, ok: boolean | null, denied: boolean,
+    run: Run,
+    input: Json,
+    output: string | null,
+    errText: string | null,
+    eventIdx: number,
+    ts: string | null,
+    ok: boolean | null,
+    denied: boolean,
   ): void {
     const cmd = String(input["command"] ?? "").trim();
     if (!cmd) return;
@@ -450,7 +503,9 @@ export class OpenCodeSource implements Source {
     else if (ok === true) resolved = inferOkFromOutput(body);
 
     run.commands.push({
-      eventIdx, ts, command: cmd,
+      eventIdx,
+      ts,
+      command: cmd,
       category: classifyCommand(cmd),
       // OpenCode does not record an exit code; success comes from tool status,
       // refined by the output. Unknown stays unknown.
@@ -534,9 +589,16 @@ function inferOkFromOutput(out: string): boolean | null {
   const blob = out.toLowerCase();
   if (!blob.trim()) return true;
   const fail = [
-    "traceback (most recent call last)", "test failed", "tests failed",
-    "npm err!", "assertionerror", "fatal:", "command not found",
-    "compilation failed", "build failed", "failures:",
+    "traceback (most recent call last)",
+    "test failed",
+    "tests failed",
+    "npm err!",
+    "assertionerror",
+    "fatal:",
+    "command not found",
+    "compilation failed",
+    "build failed",
+    "failures:",
   ];
-  return fail.some((m) => blob.includes(m)) ? false : true;
+  return !fail.some((m) => blob.includes(m));
 }

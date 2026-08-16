@@ -7,17 +7,17 @@
  */
 
 import {
-  type Finding,
-  type Label,
-  type Run,
-  type Severity,
-  SEVERITY_ORDER,
   diffMayBeIncomplete,
+  type Finding,
   filesTouched,
   isTrivialRun,
+  type Label,
   linesAdded,
   linesRemoved,
   netDiffLines,
+  type Run,
+  SEVERITY_ORDER,
+  type Severity,
   secondsBetween,
   toolCalls,
   totalTokens,
@@ -26,7 +26,7 @@ import {
 import { estimate } from "./cost.js";
 import { allLoopFindings } from "./loops.js";
 import { allRiskFindings } from "./risk.js";
-import { type Verification, allVerificationFindings, analyzeVerification } from "./verify.js";
+import { allVerificationFindings, analyzeVerification, type Verification } from "./verify.js";
 
 export const ANALYZER_VERSION = "1.0.0";
 
@@ -85,7 +85,9 @@ export function analyze(run: Run): Analysis {
     ...allLoopFindings(run),
     ...allVerificationFindings(run, verification),
     ...allRiskFindings(run, verification),
-  ].sort((a, b) => sev(b) - sev(a) || a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
+  ].sort(
+    (a, b) => sev(b) - sev(a) || a.category.localeCompare(b.category) || a.id.localeCompare(b.id),
+  );
 
   const { label, reason } = assignLabel(run, verification, findings);
   const stopPoint = findStopPoint(run, findings);
@@ -109,12 +111,19 @@ export function analyze(run: Run): Analysis {
   };
 
   const maxSeverity = findings.length
-    ? (findings.reduce((a, b) => (sev(b) > sev(a) ? b : a)).severity)
+    ? findings.reduce((a, b) => (sev(b) > sev(a) ? b : a)).severity
     : "info";
 
   return {
-    runId: run.runId, label, labelReason: reason, findings, verification,
-    stopPoint, metrics, maxSeverity, trivial: isTrivialRun(run),
+    runId: run.runId,
+    label,
+    labelReason: reason,
+    findings,
+    verification,
+    stopPoint,
+    metrics,
+    maxSeverity,
+    trivial: isTrivialRun(run),
     analyzerVersion: ANALYZER_VERSION,
   };
 }
@@ -124,18 +133,21 @@ export function analyze(run: Run): Analysis {
  * not 'productive' regardless of how good the diff was.
  */
 function assignLabel(
-  run: Run, v: Verification, findings: Finding[],
+  run: Run,
+  v: Verification,
+  findings: Finding[],
 ): { label: Label; reason: string } {
   const risky = findings.filter(
     (f) =>
       ((f.category === "secrets" || f.category === "destructive") && sev(f) >= 2) ||
       (f.category === "scope" && sev(f) >= 3),
   );
-  if (risky.length) {
+  const worstRisk = risky[0];
+  if (worstRisk) {
     return {
       label: "risky",
       reason:
-        `${risky[0]!.title.toLowerCase()} — sensitive or destructive actions take precedence ` +
+        `${worstRisk.title.toLowerCase()} — sensitive or destructive actions take precedence ` +
         `over output quality`,
     };
   }
@@ -180,7 +192,10 @@ function assignLabel(
 
   if (changed && v.status === "passed") {
     return findings.some((f) => sev(f) >= 2)
-      ? { label: "productive", reason: `${v.summary}, with ${findings.length} finding(s) worth a look` }
+      ? {
+          label: "productive",
+          reason: `${v.summary}, with ${findings.length} finding(s) worth a look`,
+        }
       : { label: "productive", reason: `${files} file(s) changed and ${v.summary}` };
   }
 
@@ -188,7 +203,10 @@ function assignLabel(
     return { label: "questionable", reason: "files changed but verification is still failing" };
   }
   if (changed && v.status === "not_run") {
-    return { label: "questionable", reason: "files changed, nothing run to confirm the change works" };
+    return {
+      label: "questionable",
+      reason: "files changed, nothing run to confirm the change works",
+    };
   }
   if (!changed && !longRun && !loops.length) {
     return {

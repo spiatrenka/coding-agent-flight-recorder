@@ -108,7 +108,11 @@ export interface Command {
 
 /** Stable key for "is this the same command again". */
 export function normalizedCommand(c: Command): string {
-  return c.command.split(/\s+/).join(" ").trim().replace(/[;&|]+$/, "");
+  return c.command
+    .split(/\s+/)
+    .join(" ")
+    .trim()
+    .replace(/[;&|]+$/, "");
 }
 
 export interface ModelUsage {
@@ -204,7 +208,10 @@ export interface Run {
 }
 
 export function makeRunId(source: string, sessionId: string, segment: number): string {
-  const h = createHash("sha1").update(`${source}:${sessionId}:${segment}`).digest("hex").slice(0, 12);
+  const h = createHash("sha1")
+    .update(`${source}:${sessionId}:${segment}`)
+    .digest("hex")
+    .slice(0, 12);
   return `${source.slice(0, 2)}-${h}`;
 }
 
@@ -223,11 +230,11 @@ export function filesTouched(run: Run): string[] {
 }
 
 export function linesAdded(run: Run): number {
-  return run.fileEdits.reduce((n, e) => n + (e.applied ? e.linesAdded ?? 0 : 0), 0);
+  return run.fileEdits.reduce((n, e) => n + (e.applied ? (e.linesAdded ?? 0) : 0), 0);
 }
 
 export function linesRemoved(run: Run): number {
-  return run.fileEdits.reduce((n, e) => n + (e.applied ? e.linesRemoved ?? 0 : 0), 0);
+  return run.fileEdits.reduce((n, e) => n + (e.applied ? (e.linesRemoved ?? 0) : 0), 0);
 }
 
 export function netDiffLines(run: Run): number {
