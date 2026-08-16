@@ -28,7 +28,7 @@ runtime.
   independently-drifting codebases quietly destroy that property, and nothing
   in the test suite would have caught the divergence.
 - **The runtime argument did not hold.** The TypeScript build has zero runtime
-  dependencies and needs only Node 22.5+ for `node:sqlite`. The Python port
+  dependencies and needs only Node 24+ for `node:sqlite`. The Python port
   needed 3.10+, which was *not* available on the machine this was developed on
   (3.8), so in practice it was the less portable of the two.
 

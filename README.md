@@ -1,4 +1,9 @@
-# Agent Flight Recorder (TypeScript)
+# Agent Flight Recorder
+
+[![npm](https://img.shields.io/npm/v/@spiatrenka/agent-flight-recorder)](https://www.npmjs.com/package/@spiatrenka/agent-flight-recorder)
+[![node](https://img.shields.io/node/v/@spiatrenka/agent-flight-recorder)](https://nodejs.org)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/spiatrenka/agent-flight-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/spiatrenka/agent-flight-recorder/actions/workflows/ci.yml)
 
 Local post-hoc forensics for coding-agent runs. Reads the session data **Claude Code** and
 **OpenCode** already write to your disk, segments it into runs, and produces a postmortem that
@@ -8,6 +13,15 @@ answers one question:
 
 No instrumentation, no wrapper, no account. It works on runs that already happened.
 
+```bash
+npx @spiatrenka/agent-flight-recorder demo    # synthetic runs, every verdict
+npx @spiatrenka/agent-flight-recorder serve   # dashboard at http://127.0.0.1:8787
+```
+
+**Nothing leaves your machine.** No network calls, no telemetry, no account, zero runtime
+dependencies. The only network code in the project is a server that refuses to bind anything
+but loopback.
+
 Why this exists, and what it deliberately isn't: [`docs/ANALYSIS.md`](docs/ANALYSIS.md).
 Decisions worth not re-litigating: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
@@ -15,10 +29,20 @@ Decisions worth not re-litigating: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Quickstart
 
-Node 22.5+ (for `node:sqlite`). **Zero runtime dependencies** — TypeScript is the only devDependency.
+Node 24+ (for `node:sqlite`). **Zero runtime dependencies.**
+
+Against your own history, with the CLI installed globally:
 
 ```bash
-npm install
+npm install -g @spiatrenka/agent-flight-recorder
+flightrec ingest
+flightrec serve
+```
+
+### Or clone and build
+
+```bash
+npm install       # builds via prepare
 npm run demo      # load synthetic runs covering every verdict
 npm run serve     # dashboard at http://127.0.0.1:8787
 ```
