@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+archive/
+
+# This tool's whole subject matter is transcripts and credentials. Keep both
+# kinds of thing out of the repository by default rather than by vigilance.
+.env
+.env.*
+*.jsonl
+*.db
+*.db-journal
+
+# Machine-local agent config: contains absolute paths and per-machine allowlists.
+.claude/settings.local.json
+
+.DS_Store
+*.log
+.idea/
+.vscode/

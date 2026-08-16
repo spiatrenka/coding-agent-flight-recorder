@@ -1,0 +1,70 @@
+{
+  "name": "@spiatrenka/agent-flight-recorder",
+  "version": "0.1.0",
+  "description": "Local post-hoc forensics and postmortems for coding-agent runs",
+  "license": "MIT",
+  "author": "Sergey Petrenko <siarhei.piatrenka@gmail.com>",
+  "homepage": "https://github.com/spiatrenka/agent-flight-recorder#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spiatrenka/agent-flight-recorder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/spiatrenka/agent-flight-recorder/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "opencode",
+    "coding-agent",
+    "ai-agent",
+    "agent-observability",
+    "postmortem",
+    "forensics",
+    "developer-tools",
+    "cli",
+    "local-first",
+    "sqlite"
+  ],
+  "type": "module",
+  "bin": {
+    "flightrec": "./dist/src/cli.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/src",
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc && npm run --silent copy:web",
+    "copy:web": "node -e \"require('node:fs').cpSync('src/web','dist/src/web',{recursive:true})\"",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "rebuild": "npm run clean && npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "test:fast": "node --test dist/test/*.test.js",
+    "check": "npm run typecheck && npm test",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run check",
+    "flightrec": "node dist/src/cli.js",
+    "demo": "npm run build && node dist/src/cli.js demo",
+    "ingest": "npm run build && node dist/src/cli.js ingest",
+    "serve": "npm run build && node dist/src/cli.js serve",
+    "start": "npm run serve",
+    "list": "node dist/src/cli.js list",
+    "report": "node dist/src/cli.js report",
+    "stats": "node dist/src/cli.js stats"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

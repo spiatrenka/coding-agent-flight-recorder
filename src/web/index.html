@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Flight Recorder</title>
+<script>
+/* Applied before first paint: reading it later flashes the wrong theme. Dark is
+   the default, so only an explicit "light" choice is ever stored. */
+try{ if (localStorage.getItem("flightrec-theme") === "light")
+       document.documentElement.setAttribute("data-theme","light"); }catch(e){}
+</script>
+<style>
+:root{
+  /* Dark is the default: this is a forensics console you sit in front of
+     after a bad run, usually at the end of a day. Light is opt-in and
+     remembered. Every colour is a token so the two themes stay in step. */
+  --ground:#0c1015; --panel:#141b22; --panel-2:#111820;
+  --rule:#232e39; --rule-soft:#1a232c;
+  --ink:#e2e8ee; --muted:#93a2b0; --faint:#68788a;
+  --normal:#5fbf8d; --caution:#d59a45; --waste:#9d90de; --warning:#e5717f;
+  --trace:#4fbcd6; --trace-soft:#16323d;
+  --highlight:#3a2f12; --warn-bg:#241c0e;
+  --shadow:0 1px 2px rgba(0,0,0,.5);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --rail:320px;
+}
+:root[data-theme="light"]{
+  --ground:#e8ebef; --panel:#fdfdfd; --panel-2:#f3f5f8;
+  --rule:#c9d1da; --rule-soft:#dfe4ea;
+  --ink:#101820; --muted:#5f6c7b; --faint:#8b97a3;
+  --normal:#1c6e52; --caution:#a85d00; --waste:#5b4b9c; --warning:#ae1f2b;
+  --trace:#0b6c88; --trace-soft:#cfe3ea;
+  --highlight:#fff6d6; --warn-bg:#fff8ec;
+  --shadow:0 1px 2px rgba(16,24,32,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--ground); color:var(--ink); font-family:var(--sans);
+  font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+/* Machine-derived values are monospace. Human narrative is sans. That rule is
+   the whole typographic system here and it is never broken. */
+.mono,code,pre,.val,.tag,.eyebrow{font-family:var(--mono)}
+.eyebrow{
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--faint); font-weight:600;
+}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--trace);outline-offset:2px}
+
+/* ---------- shell ---------- */
+.app{display:grid;grid-template-columns:var(--rail) 1fr;height:100vh}
+.rail{
+  background:var(--panel); border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;min-height:0;
+}
+.main{overflow-y:auto;min-width:0}
+
+/* ---------- rail ---------- */
+.brand{padding:16px 18px 12px;border-bottom:1px solid var(--rule-soft)}
+.brand h1{
+  margin:0;font-family:var(--mono);font-size:13px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;
+}
+.brand .sub{color:var(--muted);font-size:11.5px;margin-top:3px}
+.railtools{padding:10px 14px;border-bottom:1px solid var(--rule-soft);
+  display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{
+  border:1px solid var(--rule);background:transparent;border-radius:999px;
+  padding:3px 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)
+}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--ground)}
+.chip.ghost{border-style:dashed}
+.runlist{overflow-y:auto;flex:1;min-height:0}
+.sessionhead{
+  padding:12px 16px 4px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--faint);
+  position:sticky;top:0;background:var(--panel);z-index:1;
+  border-bottom:1px solid var(--rule-soft);
+}
+.run{
+  width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--rule-soft);
+  padding:11px 16px 11px 14px;display:block;border-left:3px solid transparent;
+}
+.run:hover{background:var(--panel-2)}
+.run[aria-current="true"]{background:var(--panel-2);border-left-color:var(--ink)}
+.run .goal{font-size:13px;line-height:1.4;margin-bottom:5px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.run .meta{display:flex;gap:9px;align-items:center;font-family:var(--mono);
+  font-size:10.5px;color:var(--muted);flex-wrap:wrap}
+.dot{width:7px;height:7px;border-radius:2px;flex:none}
+.empty{padding:36px 20px;color:var(--muted);font-size:13px}
+.empty code{background:var(--panel-2);padding:1px 5px;border-radius:3px;font-size:12px}
+
+/* verdict colours, used identically everywhere */
+.v-productive{--v:var(--normal)} .v-questionable{--v:var(--caution)}
+.v-wasteful{--v:var(--waste)} .v-risky{--v:var(--warning)}
+.dot{background:var(--v,var(--faint))}
+
+/* ---------- run header ---------- */
+.wrap{max-width:1120px;padding:26px 34px 80px}
+.verdict{display:flex;gap:16px;align-items:flex-start;margin-bottom:6px}
+.badge{
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ground);background:var(--v,var(--faint));
+  padding:5px 11px;border-radius:3px;white-space:nowrap;margin-top:2px;
+}
+.reason{font-size:15px;line-height:1.5}
+.goalline{font-size:20px;line-height:1.4;margin:14px 0 4px;max-width:70ch;font-weight:450}
+.crumbs{font-family:var(--mono);font-size:11px;color:var(--muted);
+  display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+
+/* ---------- the tape (signature element) ---------- */
+.tape{background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+  padding:14px 16px 10px;margin-bottom:18px}
+.tapehead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.tape svg{display:block;width:100%;height:96px;overflow:visible}
+.tape .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;
+  font-family:var(--mono);font-size:10px;color:var(--muted)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+.tick{cursor:pointer}
+.tick:hover rect,.tick:hover line{opacity:.6}
+@media (prefers-reduced-motion:no-preference){
+  .tape svg .grow{animation:grow .5s cubic-bezier(.2,.7,.3,1) both}
+  @keyframes grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+}
+
+/* ---------- stat strip ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
+  border:1px solid var(--rule);border-radius:4px;background:var(--panel);
+  margin-bottom:20px;overflow:hidden}
+.stat{padding:11px 14px;border-right:1px solid var(--rule-soft)}
+.stat:last-child{border-right:0}
+.stat .val{font-size:19px;font-weight:600;line-height:1.2;letter-spacing:-.02em}
+.stat .val.unknown{color:var(--faint);font-weight:400}
+.stat .k{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+  margin-top:3px;font-family:var(--mono)}
+
+/* ---------- tabs + panels ---------- */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin-bottom:18px;
+  overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 13px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab .n{color:var(--faint);margin-left:5px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+  padding:18px 20px;margin-bottom:14px}
+.card h3{margin:0 0 8px;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);font-weight:600}
+.card p{margin:0 0 10px;max-width:76ch}
+.card pre{margin:0;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+
+/* ---------- timeline ---------- */
+.ev{display:grid;grid-template-columns:52px 1fr;gap:12px;padding:7px 0;
+  border-bottom:1px solid var(--rule-soft);align-items:start}
+.ev:last-child{border-bottom:0}
+.ev.hl{background:var(--highlight);margin:0 -8px;padding-left:8px;padding-right:8px}
+.ev .ix{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-align:right;
+  padding-top:2px}
+.ev .body{min-width:0}
+.ev .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)}
+.ev .lbl.fail{color:var(--warning)}
+.ev .lbl.edit{color:var(--trace)}
+.ev .txt{white-space:pre-wrap;word-break:break-word;font-size:13px;margin-top:2px}
+.ev details summary{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--trace)}
+.ev pre{background:var(--panel-2);border:1px solid var(--rule-soft);border-radius:3px;
+  padding:8px 10px;font-size:11.5px;margin:6px 0 0;max-height:320px;overflow:auto;
+  white-space:pre-wrap;word-break:break-word}
+.diff .add{color:var(--normal)} .diff .del{color:var(--warning)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--faint);font-weight:600;
+  padding:0 10px 7px 0;border-bottom:1px solid var(--rule)}
+td{padding:7px 10px 7px 0;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+.path{font-family:var(--mono);font-size:12px;word-break:break-all}
+.pass{color:var(--normal)} .fail{color:var(--warning)} .unk{color:var(--faint)}
+
+/* ---------- findings ---------- */
+.finding{border-left:3px solid var(--s,var(--faint));padding:2px 0 2px 14px;margin-bottom:18px}
+.s-high{--s:var(--warning)} .s-medium{--s:var(--caution)}
+.s-low{--s:var(--trace)} .s-info{--s:var(--faint)}
+.finding h4{margin:0 0 4px;font-size:14.5px}
+.finding .sev{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--s,var(--muted));margin-right:8px}
+.finding p{margin:0 0 8px;color:var(--muted)}
+.evlist{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:11.5px}
+.evlist li{padding:3px 0;color:var(--muted)}
+.evlist button{background:none;border:0;padding:0;color:var(--trace);
+  font-family:var(--mono);font-size:11.5px;text-decoration:underline}
+.rule{background:var(--panel-2);border:1px solid var(--rule-soft);border-radius:3px;
+  padding:10px 12px;margin-top:8px}
+.rule .r{font-weight:600}
+.notarmed{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;border:1px solid var(--rule);border-radius:999px;
+  padding:1px 8px;color:var(--muted);margin-left:8px}
+.copy{border:1px solid var(--rule);background:var(--panel);border-radius:3px;
+  padding:4px 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)}
+.copy:hover{border-color:var(--ink);color:var(--ink)}
+.warnbar{border:1px solid var(--caution);background:var(--warn-bg);border-radius:4px;
+  padding:10px 14px;margin-bottom:14px;font-size:12.5px}
+
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .rail{border-right:0;border-bottom:1px solid var(--rule);max-height:42vh}
+  .wrap{padding:18px 16px 60px}
+}
+
+/* --- calm layer: one loud thing per screen ------------------------------- */
+.lede{
+  display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--rule);
+  border-left:3px solid var(--faint);
+  padding:12px 16px; margin:16px 0; font-size:14.5px; line-height:1.5;
+}
+.lede .eyebrow{flex:0 0 auto;padding-top:1px}
+.lede.act{border-left-color:var(--caution)}
+.lede.warn{border-left-color:var(--warning)}
+.lede.ok{border-left-color:var(--normal)}
+.lede.note{border-left-color:var(--trace)}
+.stat .sub{font-size:10.5px;color:var(--faint);margin-top:3px;letter-spacing:0}
+.run .flag{color:var(--warning);font-weight:700;font-family:var(--mono)}
+.tapewrap{margin:4px 0 16px;border:1px solid var(--rule-soft);background:var(--panel)}
+.tapewrap>summary{
+  cursor:pointer;padding:8px 14px;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:600;user-select:none;
+}
+.tapewrap>summary:hover{color:var(--muted)}
+.tapewrap[open]>summary{border-bottom:1px solid var(--rule-soft)}
+#themetoggle{margin-left:auto}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <h1>Agent Flight Recorder</h1>
+      <div class="sub" id="sub">loading…</div>
+    </div>
+    <div class="railtools" id="filters">
+      <button class="chip" data-label="" aria-pressed="true">all</button>
+      <button class="chip v-productive" data-label="productive" aria-pressed="false">productive</button>
+      <button class="chip v-questionable" data-label="questionable" aria-pressed="false">questionable</button>
+      <button class="chip v-wasteful" data-label="wasteful" aria-pressed="false">wasteful</button>
+      <button class="chip v-risky" data-label="risky" aria-pressed="false">risky</button>
+      <button class="chip ghost" id="rescan">rescan</button>
+      <button class="chip ghost" id="themetoggle" title="switch theme"
+              aria-label="switch theme">☾</button>
+    </div>
+    <div class="railtools" id="sourcefilters">
+      <button class="chip" data-source="" aria-pressed="true">all sources</button>
+      <button class="chip ghost" id="showtrivial" aria-pressed="false">show trivial</button>
+    </div>
+    <div class="runlist" id="runlist"></div>
+  </aside>
+  <main class="main"><div class="wrap" id="detail"></div></main>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const api = (p, o) => fetch(p, o).then(r => r.json());
+
+let RUNS = [], CURRENT = null, FILTER = "", SOURCE = "", TRIVIAL = false;
+
+function dur(s){
+  if (s == null) return "—";
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s/60) + "m " + String(s%60).padStart(2,"0") + "s";
+  return Math.floor(s/3600) + "h " + Math.floor((s%3600)/60) + "m";
+}
+const when = t => t ? new Date(t).toLocaleString(undefined,
+  {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"}) : "—";
+const money = r => r.cost_known ? "$" + Number(r.cost_usd).toFixed(2) : "?";
+
+/* ---------------- rail ---------------- */
+async function loadRuns(){
+  RUNS = await api("/api/runs?limit=400" + (TRIVIAL ? "&all=1" : ""));
+  const st = await api("/api/stats");
+  const hidden = TRIVIAL ? 0 : (st.trivial || 0);
+  $("#sub").textContent = `${st.runs || 0} runs · ${st.sessions || 0} sessions · `
+    + `${Math.round((st.seconds||0)/3600)}h recorded`
+    + (hidden ? ` · ${hidden} trivial hidden` : "");
+  renderSourceChips();
+  renderRail();
+  if (!CURRENT && RUNS.length) selectRun(RUNS[0].run_id);
+  if (!RUNS.length) $("#detail").innerHTML = emptyState();
+}
+
+function emptyState(){
+  return `<div class="empty">
+    <p><strong>No runs recorded yet.</strong></p>
+    <p>Read your local agent transcripts with <code>flightrec ingest</code>, or press
+    <em>rescan</em> above. Claude Code transcripts are looked for under
+    <code>~/.claude/projects</code> (<code>CLAUDE_CONFIG_DIR</code> to relocate) and
+    OpenCode sessions under <code>~/.local/share/opencode/storage</code>
+    (<code>OPENCODE_STORAGE_DIR</code> to relocate).</p>
+  </div>`;
+}
+
+/* Source chips are derived from the data, so a new importer needs no UI change. */
+function renderSourceChips(){
+  const el = $("#sourcefilters");
+  const seen = [...new Set(RUNS.map(r => r.source))].sort();
+  if (seen.length < 2){ el.querySelectorAll("[data-source]:not([data-source=''])").forEach(n => n.remove()); return; }
+  const keep = el.querySelector("[data-source='']");
+  if (!keep) return;
+  el.querySelectorAll("[data-source]:not([data-source=''])").forEach(n => n.remove());
+  for (const s of seen){
+    const b = document.createElement("button");
+    b.className = "chip"; b.dataset.source = s; b.textContent = s.replace("_", " ");
+    b.setAttribute("aria-pressed", String(SOURCE === s));
+    keep.after(b);
+  }
+  keep.setAttribute("aria-pressed", String(SOURCE === ""));
+}
+
+function renderRail(){
+  const runs = RUNS.filter(r => (!FILTER || r.label === FILTER)
+                             && (!SOURCE || r.source === SOURCE));
+  const list = $("#runlist");
+  if (!runs.length){ list.innerHTML = `<div class="empty">Nothing matches this filter.</div>`; return; }
+  let html = "", lastKey = null;
+  for (const r of runs){
+    const key = (r.project_path || "unknown").split("/").pop() + " · " + (r.git_branch || "no branch");
+    if (key !== lastKey){ html += `<div class="sessionhead">${esc(key)}</div>`; lastKey = key; }
+    /* Two lines only. The stripe and dot carry the verdict, so repeating it
+       as text — alongside cost, files and tokens — was five redundant chips
+       per row in a list whose only job is "which of these do I open". */
+    const attention = r.max_severity === "high" ? '<span class="flag" title="high-severity finding">!</span>' : "";
+    html += `<button class="run v-${esc(r.label)}" data-id="${esc(r.run_id)}"
+        aria-current="${r.run_id === CURRENT}">
+      <div class="goal">${esc(r.goal || "no prompt in this segment")}</div>
+      <div class="meta">
+        <span class="dot"></span>${attention}
+        <span>${when(r.started_at)}</span><span>${dur(r.duration_s)}</span>
+      </div></button>`;
+  }
+  list.innerHTML = html;
+  list.querySelectorAll(".run").forEach(b =>
+    b.onclick = () => selectRun(b.dataset.id));
+}
+
+$("#filters").onclick = e => {
+  const b = e.target.closest(".chip"); if (!b || b.id === "rescan") return;
+  FILTER = b.dataset.label;
+  $("#filters").querySelectorAll("[data-label]").forEach(c =>
+    c.setAttribute("aria-pressed", String(c === b)));
+  renderRail();
+};
+$("#sourcefilters").onclick = e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  if (b.id === "showtrivial"){
+    TRIVIAL = !TRIVIAL;
+    b.setAttribute("aria-pressed", String(TRIVIAL));
+    b.textContent = TRIVIAL ? "hide trivial" : "show trivial";
+    loadRuns();
+    return;
+  }
+  if (b.dataset.source === undefined) return;
+  SOURCE = b.dataset.source;
+  $("#sourcefilters").querySelectorAll("[data-source]").forEach(c =>
+    c.setAttribute("aria-pressed", String(c === b)));
+  renderRail();
+};
+$("#themetoggle").onclick = () => {
+  const root = document.documentElement;
+  const toLight = root.getAttribute("data-theme") !== "light";
+  if (toLight) root.setAttribute("data-theme", "light");
+  else root.removeAttribute("data-theme");
+  try{ localStorage.setItem("flightrec-theme", toLight ? "light" : "dark"); }catch(e){}
+  syncThemeLabel();
+  drawTape();
+};
+function syncThemeLabel(){
+  const b = $("#themetoggle"); if (!b) return;
+  b.textContent = document.documentElement.getAttribute("data-theme") === "light" ? "☀" : "☾";
+}
+syncThemeLabel();
+
+$("#rescan").onclick = async e => {
+  e.target.textContent = "scanning…";
+  await fetch("/api/ingest", {method:"POST"});
+  e.target.textContent = "rescan";
+  await loadRuns();
+};
+
+/* ---------------- run detail ---------------- */
+async function selectRun(id){
+  CURRENT = id;
+  renderRail();
+  const d = await api("/api/runs/" + id);
+  renderRun(d);
+  $(".main").scrollTop = 0;
+}
+
+function renderRun(d){
+  const t = d.trace, a = d.analysis, pm = d.postmortem, m = a.metrics;
+  const drift = t.schemaDrift?.length ? `<div class="warnbar">
+      <strong>Parser note.</strong> This transcript contained
+      ${t.schemaDrift.length} unrecognised entry shape(s)
+      (${esc(t.schemaDrift.join("; "))}). The transcript format is internal to the agent and
+      changes between releases, so part of this run may not be represented.</div>` : "";
+
+  $("#detail").innerHTML = `
+    <div class="v-${esc(a.label)}">
+      <div class="verdict">
+        <span class="badge">${esc(a.label)}</span>
+        <span class="reason">${esc(a.labelReason)}</span>
+      </div>
+      <div class="goalline">${esc(t.goal || "No prompt in this segment — likely a resumed or automated continuation.")}</div>
+      <div class="crumbs">
+        <span>${esc(t.projectPath || "unknown project")}</span>
+        <span>${esc(t.gitBranch || "no branch")}</span>
+        <span>${when(t.startedAt)}</span>
+        <span>${esc(t.source)} ${esc(t.agentVersion || "")}</span>
+        <span>confidence: ${esc(pm.confidence)}</span>
+      </div>
+    </div>
+    ${drift}
+    ${lede(a, pm)}
+    ${stats(t, a, m)}
+    <details class="tapewrap"><summary>run shape</summary>${tape(t, a)}</details>
+    <div class="tabs" id="tabs">
+      ${tabBtn("postmortem","Postmortem")}
+      ${tabBtn("timeline","Timeline", t.events.length)}
+      ${tabBtn("files","Files", m.filesChanged)}
+      ${tabBtn("commands","Commands", t.commands.length)}
+      ${tabBtn("findings","Findings", a.findings.length)}
+      ${tabBtn("firewall","Firewall", pm.firewall.length)}
+    </div>
+    <div id="panel"></div>`;
+
+  $("#tabs").onclick = e => {
+    const b = e.target.closest(".tab"); if (!b) return; showTab(b.dataset.tab, d);
+  };
+  showTab("postmortem", d);
+  drawTape();
+}
+
+const tabBtn = (id, label, n) =>
+  `<button class="tab" data-tab="${id}" aria-selected="false">${label}${
+    n !== undefined ? `<span class="n">${n}</span>` : ""}</button>`;
+
+function showTab(name, d){
+  document.querySelectorAll(".tab").forEach(b =>
+    b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+  const P = {postmortem, timeline, files, commands, findings, firewall};
+  $("#panel").innerHTML = P[name](d);
+  if (name === "postmortem") wireCopy(d);
+  if (name === "findings") wireJump();
+}
+
+/* ---------------- the tape ---------------- */
+/* Time-proportional strip of the whole run. Edits rise above the axis, failures
+   drop below it, and everything after the recommended stop point is hatched.
+   This is the one view that shows the *shape* of a run at a glance. */
+function tape(t, a){
+  const evs = t.events;
+  if (!evs.length) return "";
+  const t0 = Date.parse(t.startedAt || 0), t1 = Date.parse(t.endedAt || 0);
+  const span = (t1 - t0) > 1000 ? t1 - t0 : 0;
+  const W = 1000, H = 96, AX = 56;
+  const x = ev => {
+    if (!span || !ev.ts) return (ev.idx / Math.max(1, evs.length - 1)) * (W - 8) + 4;
+    return ((Date.parse(ev.ts) - t0) / span) * (W - 8) + 4;
+  };
+  const editAt = {}, cmdAt = {};
+  t.fileEdits.forEach(e => editAt[e.eventIdx] = e);
+  t.commands.forEach(c => cmdAt[c.eventIdx] = c);
+
+  let marks = "";
+  for (const ev of evs){
+    const px = x(ev).toFixed(1);
+    const ed = editAt[ev.idx], cm = cmdAt[ev.idx];
+    if (ed){
+      const mag = Math.min(34, 6 + Math.log2(1 + (ed.linesAdded||0) + (ed.linesRemoved||0)) * 7);
+      marks += `<g class="tick grow" data-idx="${ev.idx}" style="transform-origin:${px}px ${AX}px"
+        ><title>edit · ${esc(ed.path.split("/").pop())} +${ed.linesAdded||0}/-${ed.linesRemoved||0}</title>
+        <rect x="${px-1.6}" y="${AX-mag}" width="3.2" height="${mag}"
+          fill="${ed.applied ? "var(--trace)" : "var(--faint)"}"/></g>`;
+    } else if (cm){
+      const bad = cm.ok === false;
+      const mag = bad ? 26 : 12;
+      const col = bad ? "var(--warning)" : (["test","build","lint"].includes(cm.category)
+        ? "var(--normal)" : "var(--faint)");
+      marks += `<g class="tick grow" data-idx="${ev.idx}" style="transform-origin:${px}px ${AX}px"
+        ><title>${esc(cm.category)} · ${esc(cm.command.slice(0,90))}${bad ? " · FAILED" : ""}</title>
+        <rect x="${px-1.6}" y="${AX}" width="3.2" height="${mag}" fill="${col}"/></g>`;
+    } else if (ev.kind === "tool_call"){
+      marks += `<g class="tick" data-idx="${ev.idx}"><title>${esc(ev.toolName||"tool")}</title>
+        <line x1="${px}" y1="${AX-3}" x2="${px}" y2="${AX+3}" stroke="var(--rule)" stroke-width="2"/></g>`;
+    } else if (ev.kind === "user_message"){
+      marks += `<g class="tick" data-idx="${ev.idx}"><title>prompt</title>
+        <circle cx="${px}" cy="${AX}" r="3.4" fill="var(--ink)"/></g>`;
+    } else if (ev.kind === "compaction"){
+      marks += `<line x1="${px}" y1="8" x2="${px}" y2="${AX+30}" stroke="var(--caution)"
+        stroke-width="1" stroke-dasharray="2 3"><title>context compacted</title></line>`;
+    }
+  }
+
+  let dead = "";
+  const sp = a.stopPoint;
+  if (sp){
+    const ev = evs.find(e => e.idx === sp.eventIdx) || evs[0];
+    const px = x(ev);
+    dead = `<rect x="${px.toFixed(1)}" y="6" width="${(W - px - 4).toFixed(1)}" height="${H-14}"
+        fill="url(#hatch)"/>
+      <line x1="${px.toFixed(1)}" y1="6" x2="${px.toFixed(1)}" y2="${H-8}"
+        stroke="var(--warning)" stroke-width="1.5"/>
+      <text x="${Math.min(px+7, W-260).toFixed(1)}" y="17" font-family="ui-monospace, Menlo, Consolas, monospace"
+        font-size="11" fill="var(--warning)">stop here — ${esc(sp.trigger)}</text>`;
+  }
+
+  return `<section class="tape">
+    <div class="tapehead">
+      <span class="eyebrow">run tape · ${span ? dur(span/1000) + " of wall clock" : "by event order"}</span>
+      <span class="eyebrow">${evs.length} events</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" id="tapesvg" role="img"
+         aria-label="Timeline of the run: edits above the axis, command results below.">
+      <defs><pattern id="hatch" width="7" height="7" patternTransform="rotate(45)"
+        patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="7" stroke="var(--warning)" stroke-width="1" opacity=".13"/>
+      </pattern></defs>
+      ${dead}
+      <line x1="0" y1="${AX}" x2="${W}" y2="${AX}" stroke="var(--rule)" stroke-width="1"/>
+      ${marks}
+    </svg>
+    <div class="legend">
+      <span><i style="background:var(--trace)"></i>file edit (height = lines)</span>
+      <span><i style="background:var(--normal)"></i>check passed</span>
+      <span><i style="background:var(--warning)"></i>command failed</span>
+      <span><i style="background:var(--ink)"></i>your prompt</span>
+      <span><i style="background:var(--caution)"></i>compaction</span>
+      ${sp ? `<span><i style="background:var(--warning);opacity:.3"></i>after the stop point</span>` : ""}
+    </div>
+  </section>`;
+}
+
+function drawTape(){
+  const svg = $("#tapesvg"); if (!svg) return;
+  svg.querySelectorAll(".tick").forEach((g, i) => {
+    g.style.animationDelay = Math.min(i * 8, 420) + "ms";
+    g.onclick = () => {
+      showTab("timeline", LAST);
+      const el = document.getElementById("ev-" + g.dataset.idx);
+      if (el){ el.scrollIntoView({block:"center", behavior:"smooth"}); el.classList.add("hl"); }
+    };
+  });
+}
+
+/* ---------------- stat strip ---------------- */
+/* The one sentence that decides what you do next. Everything else on the page
+   is evidence for it. Ordered by what would change a decision: a stop point
+   beats a finding, a finding beats a clean bill of health. */
+function lede(a, pm){
+  const sp = a.stopPoint;
+  if (sp){
+    const after = [];
+    if (sp.minutesAfter != null) after.push(`${sp.minutesAfter} min`);
+    if (sp.editsAfter) after.push(`${sp.editsAfter} more edit${sp.editsAfter === 1 ? "" : "s"}`);
+    if (sp.checksAfter) after.push(`${sp.checksAfter} more check${sp.checksAfter === 1 ? "" : "s"}`);
+    return `<div class="lede act"><span class="eyebrow">stop point</span>
+      Could have stopped at ${esc(sp.trigger)}${after.length ? ` — ${esc(after.join(", "))} followed` : ""}.</div>`;
+  }
+  const high = a.findings.find(f => f.severity === "high");
+  if (high) return `<div class="lede warn"><span class="eyebrow">worth checking</span>${esc(high.title)}</div>`;
+
+  const med = a.findings.find(f => f.severity === "medium");
+  if (med) return `<div class="lede note"><span class="eyebrow">worth a glance</span>${esc(med.title)}</div>`;
+
+  const v = a.verification;
+  if (v.status === "passed") return `<div class="lede ok"><span class="eyebrow">verified</span>${esc(v.summary)}.</div>`;
+
+  const m = a.metrics;
+  if (m.filesChanged && v.status === "not_run"){
+    return `<div class="lede note"><span class="eyebrow">unverified</span>
+      ${m.filesChanged} file${m.filesChanged === 1 ? "" : "s"} changed and nothing was run to check them.</div>`;
+  }
+  if (!m.filesChanged && !m.unrecordedWrites){
+    return `<div class="lede"><span class="eyebrow">no change</span>
+      Nothing was written to disk — investigation or a question answered.</div>`;
+  }
+  return `<div class="lede"><span class="eyebrow">note</span>${esc(pm.headline)}</div>`;
+}
+
+function stats(t, a, m){
+  /* Four cells, not eight. These are the ones that decide whether the run
+     needs reading; the rest moved to a muted secondary line below, because
+     eight numbers at equal weight is the same as no numbers at all. */
+  const v = a.verification;
+  const diff = m.filesChanged
+    ? `${m.filesChanged} file${m.filesChanged === 1 ? "" : "s"}`
+    : (m.unrecordedWrites ? "shell only" : "none");
+  const cells = [
+    ["changed", diff, m.filesChanged ? `+${m.linesAdded}/−${m.linesRemoved}` : ""],
+    ["verified", v.status.replace("_", " "), v.frameworks?.length ? v.frameworks.join(", ") : ""],
+    ["duration", dur(m.durationS), m.toolCalls ? `${m.toolCalls} tool calls` : ""],
+    ["cost", m.costKnown ? "$" + Number(m.costUsd).toFixed(2) : "unknown",
+      m.totalTokens ? `${Math.round(m.totalTokens / 1000)}k tokens` : ""],
+  ];
+  return `<div class="stats">${cells.map(([k, val, sub]) => {
+    const unk = val === "unknown" || val === "not run" || val === "none";
+    return `<div class="stat"><div class="val mono ${unk ? "unknown" : ""}">${esc(val)}</div>
+      <div class="k">${k}</div>${sub ? `<div class="sub mono">${esc(sub)}</div>` : ""}</div>`;
+  }).join("")}</div>`;
+}
+
+/* ---------------- panels ---------------- */
+let LAST = null;
+
+function postmortem(d){
+  LAST = d;
+  const pm = d.postmortem, s = pm.sections;
+  const pre = (x) => `<pre class="mono">${esc(x)}</pre>`;
+  return `
+  <div class="card"><h3>Headline</h3><pre class="mono">${esc(pm.headline)}</pre></div>
+  <div class="card"><h3>What happened</h3><p>${esc(s.whatHappened)}</p></div>
+  <div class="card"><h3>What changed</h3>${pre(s.whatChanged)}</div>
+  <div class="card"><h3>What failed</h3>${pre(s.whatFailed)}</div>
+  <div class="card"><h3>Cost and usage</h3>${pre(s.cost)}</div>
+  <div class="card"><h3>Should this have been stopped earlier?</h3>
+     <p style="white-space:pre-wrap">${esc(s.shouldHaveStopped)}</p></div>
+  ${pm.confidenceNotes.length ? `<div class="card"><h3>Confidence notes</h3>
+     <ul style="margin:0;padding-left:18px">${pm.confidenceNotes.map(n =>
+       `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+  <div class="card"><h3>Provenance</h3>
+    <p style="color:var(--muted);font-size:12.5px">Generated ${esc(pm.generatedAt)} by
+      <span class="mono">${esc(pm.generator)}</span>. No model was called: this postmortem is a
+      deterministic rendering of the trace, so it is identical every time it is regenerated.</p>
+    <button class="copy" id="copymd">copy as markdown</button></div>`;
+}
+
+function wireCopy(d){
+  const b = $("#copymd"); if (!b) return;
+  b.onclick = async () => {
+    const md = await fetch("/api/runs/" + d.run_id + "/markdown").then(r => r.text());
+    try { await navigator.clipboard.writeText(md); b.textContent = "copied"; }
+    catch { b.textContent = "copy failed — see /api/runs/" + d.run_id + "/markdown"; }
+    setTimeout(() => b.textContent = "copy as markdown", 1800);
+  };
+}
+
+function timeline(d){
+  LAST = d;
+  const t = d.trace;
+  const editAt = {}, cmdAt = {};
+  t.fileEdits.forEach(e => editAt[e.eventIdx] = e);
+  t.commands.forEach(c => cmdAt[c.eventIdx] = c);
+
+  const rows = t.events.map(ev => {
+    const ed = editAt[ev.idx], cm = cmdAt[ev.idx];
+    let lbl = ev.kind.replace("_", " "), cls = "", body = "";
+
+    if (ev.kind === "tool_call"){
+      lbl = ev.toolName || "tool";
+      const inp = JSON.stringify(ev.toolInput || {}, null, 1);
+      body = `<details><summary>arguments</summary><pre>${esc(inp.slice(0, 4000))}</pre></details>`;
+      /* Tool inputs are the agent's own vocabulary, not our schema, so both
+         spellings are real: Claude Code writes file_path, OpenCode filePath. */
+      const one = (ev.toolInput?.command || ev.toolInput?.file_path || ev.toolInput?.filePath
+        || ev.toolInput?.pattern || ev.toolInput?.path || "");
+      if (one) body = `<div class="txt mono">${esc(String(one).slice(0,300))}</div>` + body;
+    } else if (ed){
+      lbl = ed.op + " · " + ed.path.split("/").pop(); cls = "edit";
+      const hunks = (ed.diffHunks || []).map(l =>
+        `<span class="${l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : ""}">${esc(l)}</span>`
+      ).join("\n");
+      body = `<div class="txt path">${esc(ed.path)} <span class="mono"
+        >+${ed.linesAdded ?? "?"}/−${ed.linesRemoved ?? "?"}</span></div>`
+        + (hunks ? `<details><summary>diff</summary><pre class="diff">${hunks}</pre></details>` : "");
+    } else if (cm){
+      lbl = cm.category + (cm.ok === false ? " · failed" : cm.ok === true ? " · ok" : " · unknown");
+      cls = cm.ok === false ? "fail" : "";
+      body = `<div class="txt mono">$ ${esc(cm.command)}</div>`
+        + ((cm.stdoutTail || cm.stderrTail)
+          ? `<details><summary>output</summary><pre>${esc((cm.stderrTail || "") + "\n"
+              + (cm.stdoutTail || ""))}</pre></details>` : "");
+    } else if (ev.kind === "tool_result"){
+      lbl = (ev.toolName || "result") + (ev.ok === false ? " · error" : "");
+      cls = ev.ok === false ? "fail" : "";
+      body = `<details><summary>result</summary><pre>${esc((ev.text || "").slice(0,4000))}</pre></details>`;
+    } else {
+      body = `<div class="txt">${esc((ev.text || "").slice(0, 1400))}</div>`;
+    }
+
+    return `<div class="ev" id="ev-${ev.idx}">
+      <div class="ix">${ev.idx}</div>
+      <div class="body"><div class="lbl ${cls}">${esc(lbl)}</div>${body}</div></div>`;
+  }).join("");
+  return `<div class="card">${rows}</div>`;
+}
+
+function files(d){
+  const t = d.trace;
+  const agg = {};
+  for (const e of t.fileEdits){
+    const a = agg[e.path] ||= {add:0, del:0, n:0, ops:new Set(), applied:0};
+    a.add += e.linesAdded || 0; a.del += e.linesRemoved || 0; a.n++;
+    a.ops.add(e.op); if (e.applied) a.applied++;
+  }
+  const rows = Object.entries(agg).sort((a,b) => (b[1].add+b[1].del) - (a[1].add+a[1].del));
+  if (!rows.length) return `<div class="card"><p>No files were changed in this run. The
+    repository is byte-for-byte where it started.</p></div>`;
+  return `<div class="card"><table>
+    <thead><tr><th>Path</th><th>Ops</th><th class="num">Edits</th>
+      <th class="num">+</th><th class="num">−</th></tr></thead>
+    <tbody>${rows.map(([p, a]) => `<tr>
+      <td class="path">${esc(p)}${a.applied < a.n
+        ? ` <span class="unk mono">(${a.n - a.applied} not applied)</span>` : ""}</td>
+      <td class="mono" style="font-size:11px">${[...a.ops].join(", ")}</td>
+      <td class="num">${a.n}</td><td class="num pass">+${a.add}</td>
+      <td class="num fail">−${a.del}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function commands(d){
+  const cs = d.trace.commands;
+  if (!cs.length) return `<div class="card"><p>No shell commands ran. Nothing in this run
+    executed the code it changed.</p></div>`;
+  return `<div class="card"><table>
+    <thead><tr><th>Command</th><th>Kind</th><th>Result</th><th class="num">Event</th></tr></thead>
+    <tbody>${cs.map(c => `<tr>
+      <td class="path">${esc(c.command)}${c.denied
+        ? ` <span class="unk mono">(denied)</span>` : ""}</td>
+      <td class="mono" style="font-size:11px">${esc(c.category)}</td>
+      <td class="mono ${c.ok === false ? "fail" : c.ok ? "pass" : "unk"}">
+        ${c.ok === false ? "failed" : c.ok ? "ok" : "unknown"}
+        ${c.exitCode != null ? `(${c.exitCode})` : ""}</td>
+      <td class="num">${c.eventIdx}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function findings(d){
+  const fs = d.analysis.findings;
+  if (!fs.length) return `<div class="card"><p>No risk flags. Nothing in this run tripped a
+    loop, scope, secret, destructive-command or verification detector.</p></div>`;
+  return `<div class="card">${fs.map(f => `
+    <div class="finding s-${esc(f.severity)}">
+      <h4><span class="sev">${esc(f.severity)}</span>${esc(f.title)}</h4>
+      <p>${esc(f.detail)}</p>
+      ${f.evidence.length ? `<ul class="evlist">${f.evidence.map(e =>
+        `<li><button data-jump="${e.eventIdx}">event ${e.eventIdx}</button>
+          ${e.label ? esc(e.label) + " — " : ""}${esc((e.excerpt||"").slice(0,180))}</li>`
+      ).join("")}</ul>` : ""}
+    </div>`).join("")}</div>`;
+}
+
+function wireJump(){
+  document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => {
+    showTab("timeline", LAST);
+    const el = document.getElementById("ev-" + b.dataset.jump);
+    if (el){ el.scrollIntoView({block:"center"}); el.classList.add("hl"); }
+  });
+}
+
+function firewall(d){
+  const pm = d.postmortem;
+  if (!pm.firewall.length) return `<div class="card"><p>Nothing to propose. This run raised no
+    findings that map to a guardrail.</p></div>`;
+  return `<div class="card">
+    <h3>Proposed guardrails <span class="notarmed">not enforced</span></h3>
+    <p style="color:var(--muted)">Derived from this run's findings. This tool does not block
+      anything live — these are the rules that would have caught what happened, written so you
+      can paste them into settings or a hook.</p>
+    ${pm.firewall.map(r => `<div class="rule">
+      <div class="r">${esc(r.rule)}</div>
+      <div style="color:var(--muted);font-size:12.5px;margin-top:3px">
+        because ${esc(r.because.toLowerCase())} · ${esc(r.priority)} priority</div>
+      ${r.implementation ? `<div style="font-size:12.5px;margin-top:6px">${esc(r.implementation)}</div>` : ""}
+    </div>`).join("")}
+    ${pm.settingsSnippet ? `<h3 style="margin-top:20px">Merged settings.json fragment</h3>
+      <pre class="mono">${esc(JSON.stringify(pm.settingsSnippet, null, 2))}</pre>` : ""}
+  </div>`;
+}
+
+loadRuns();
+</script>
+</body>
+</html>
