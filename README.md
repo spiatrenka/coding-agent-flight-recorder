@@ -177,6 +177,28 @@ logic. **Nothing is enforced.** This release only proposes.
 
 ---
 
+## What this is NOT
+
+The space around this tool is crowded, and most of it solves a different problem. If one of these
+is what you actually want, use the thing that does it well:
+
+- **Not a usage meter.** It does not compete on spend totals — [`ccusage`](https://github.com/ryoppippi/ccusage)
+  and the various usage monitors do that. Their unit is a day or a billing block; this one's unit
+  is a single run, graded against the repository.
+- **Not a transcript viewer.** It does not render your session for reading. `claude-devtools` and
+  similar do that better. This **judges** a run; it does not **show** you one.
+- **Not telemetry, and not an observability platform.** Nothing is instrumented. No OTLP, no
+  collector, no exporter, no cloud. That is also why it can do something they cannot: it works
+  retroactively, on runs that already finished, with no decision made in advance to record them.
+- **Not a guardrail.** The firewall section *proposes* permission rules and hooks. Nothing is
+  armed, nothing is blocked, nothing is written to your config. Enforcement is a deliberate v2 —
+  it needs a consent design before it needs code.
+- **Not an LLM judge.** There is no model anywhere in the analysis path, permanently and by
+  design. See the section above.
+- **Not a team dashboard.** One user, loopback bind, no authentication, no multi-user story.
+
+---
+
 ## Why the postmortem has no LLM in it
 
 Determinism is the feature. The same run always produces the same verdict, so:
@@ -222,8 +244,17 @@ anything but loopback. Transcripts routinely capture whatever a command printed 
 contents of a `.env` — so tool output is scrubbed of high-confidence credential patterns on the way
 into the store. The original transcripts are untouched.
 
+**What leaves your machine: nothing.** There are no HTTP clients in this project, no telemetry, no
+update checks, no account. The only network code is a *server*, and it throws rather than binding
+any interface outside `127.0.0.1`, `localhost` and `::1`.
+
+Redaction is deliberately conservative, and that is a real trade: over-redaction destroys the
+evidence value of the record, so it is a mitigation rather than a guarantee. **Treat
+`~/.flightrec/flightrec.db` as exactly as sensitive as `~/.claude` itself.**
+
 Ingest is also an *archival* act: Claude Code purges transcripts after 30 days by default, and this
-database outlives them. Delete the file to delete the record.
+database outlives them. `rm ~/.flightrec/flightrec.db` is the complete deletion path — there is
+nowhere else state lives. See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ---
 
@@ -304,8 +335,14 @@ Two things are worth copying from `opencode.ts` when you write one:
   The parser is tolerant by construction — unknown entry types are recorded as schema drift and
   surfaced in the UI rather than dropped or fatal — but a large format change will degrade the
   detail available.
-- `node:sqlite` is marked experimental in Node 22. It is a single-writer local file here, which is
-  the case it handles well, but the API could shift in a future Node release.
+- `node:sqlite` is still marked experimental in Node 24. It is a single-writer local file here,
+  which is the case it handles well, but the API could shift in a future Node release. This is why
+  `.nvmrc` pins the floor rather than the latest.
+- **Windows is untested.** CI covers Linux and macOS. The test glob is POSIX and the path guards
+  are separator-sensitive; rather than claim support nobody has verified, it is left unclaimed.
+- The `flightrec` binary name may collide if you have also installed the unrelated `flightrec`
+  package from npm.
+- Not affiliated with the unrelated `agent-flight-recorder` package on npm.
 - Run segmentation uses an idle-gap heuristic. A run interrupted by a long lunch splits in two;
   `FLIGHTREC_IDLE_GAP` tunes it.
 - Command success is read from exit codes where the transcript records them and inferred from
@@ -315,3 +352,23 @@ Two things are worth copying from `opencode.ts` when you write one:
   survived in the working tree afterwards. Shell-mediated changes are *detected* but not measured —
   the run is marked as having an incomplete diff rather than a counted one.
 - Subagent (`Task`) trees are recorded as tool calls but not yet expanded into nested timelines.
+
+---
+
+## Contributing
+
+Pull requests welcome. [CONTRIBUTING.md](CONTRIBUTING.md) is the review bar — the constraints that
+make this tool worth using (determinism, zero dependencies, honest unknowns) are load-bearing, and
+it explains why before it explains how.
+
+`npm run check` is the gate: lint, typecheck, tests. By participating you agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+The threat model is specific — this tool reads your private transcripts. See
+[SECURITY.md](SECURITY.md), and report vulnerabilities privately rather than in an issue.
+
+## License
+
+MIT © 2026 Sergey Petrenko. See [LICENSE](LICENSE).

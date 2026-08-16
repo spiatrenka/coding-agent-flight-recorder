@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest a capability.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to find out about a run that you currently can't?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like it to do
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime-dep
+    attributes:
+      label: Would this require a runtime dependency?
+      description: >
+        `dependencies` is empty and stays empty — this tool reads your private
+        transcripts, and every package added is another party in that. A feature
+        needing one isn't automatically rejected, but it needs the case made.
+      options: [ "No", "Yes", "Not sure" ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: llm
+    attributes:
+      label: Would this require an LLM in the analysis path?
+      description: >
+        Determinism is the product — the same run must always produce the same
+        verdict. An LLM narrator layered on top is a reasonable v2; an LLM in
+        the analysis path is permanently out of scope. See docs/ANALYSIS.md §7.
+      options: [ "No", "Yes", "Not sure" ]
+    validations:
+      required: true

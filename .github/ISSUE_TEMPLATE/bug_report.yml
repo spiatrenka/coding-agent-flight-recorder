@@ -1,0 +1,80 @@
+name: Bug report
+description: Something behaves incorrectly or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you write anything: this tool's input is your private transcripts.
+        Please reproduce with `flightrec demo` where you can — it seeds synthetic
+        runs covering every verdict and reproduces most UI and analysis bugs.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact command and any error output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Which agent's data
+      options:
+        - Claude Code
+        - OpenCode
+        - Both
+        - Not applicable / synthetic demo data
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Which command
+      options: [ingest, serve, report, list, stats, demo, other]
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: output of `node --version`
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. macOS 15.2, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: output of `npm ls -g @spiatrenka/agent-flight-recorder`, or the commit sha
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Data check
+      options:
+        - label: >
+            I have not pasted a real transcript, database, or report output. I
+            checked any snippet above for absolute paths, session titles, branch
+            names and credentials.
+          required: true

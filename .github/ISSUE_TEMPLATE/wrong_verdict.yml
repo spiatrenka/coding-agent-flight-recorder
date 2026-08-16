@@ -1,0 +1,61 @@
+name: Wrong verdict or misfiring detector
+description: A run was graded wrongly, or a detector fired when it should not have (or didn't when it should).
+labels: [detector-accuracy]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable kind of report this project receives.
+
+        Detector thresholds can only be validated against real usage, and that
+        is exactly the data the maintainers cannot generate for themselves. Two
+        detectors — `loop.revert` and `loop.stall_tail` — have never fired on a
+        real corpus at all, so their thresholds are still guesses.
+
+        Please redact as you go: `flightrec report <id> --json` contains your
+        prompts and file contents.
+
+  - type: dropdown
+    id: given
+    attributes:
+      label: Verdict it gave
+      options: [productive, questionable, wasteful, risky]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: expected
+    attributes:
+      label: Verdict you expected
+      options: [productive, questionable, wasteful, risky]
+    validations:
+      required: true
+
+  - type: textarea
+    id: fired
+    attributes:
+      label: Which findings fired
+      description: >
+        The `id` fields from `flightrec report <run-id> --json`, e.g.
+        `loop.churn`, `risk.blast_radius`. Ids only is fine — no need to paste
+        the evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What about this run makes that grade wrong
+      description: >
+        Describe the run in your own words rather than pasting it. What did you
+        ask for, roughly what did the agent do, and why is the grade unfair?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Data check
+      options:
+        - label: I have redacted anything private from the details above.
+          required: true
