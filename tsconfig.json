@@ -4,6 +4,12 @@
     "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    // TypeScript 7 no longer pulls in every @types package implicitly, so the
+    // one ambient dependency this project has is named here. Being explicit is
+    // better regardless: it documents that `node` is the only global type
+    // surface in use, and stops an unrelated @types package installed by a
+    // tool from silently widening it.
+    "types": ["node"],
     "outDir": "dist",
     "rootDir": ".",
     "strict": true,

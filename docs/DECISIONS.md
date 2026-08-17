@@ -153,3 +153,158 @@ fired surfaced two defects that fixtures could not:
 **Consequences.** Fixtures pin behaviour; they do not establish it. When adding
 a detector, run it over `flightrec ingest` output and check both directions —
 what fired that should not have, and what should have fired and did not.
+
+---
+
+## 2026-08-17 — The Node floor is 24, not 22.5
+
+**Decision.** `engines.node` is `>=24.0.0`. Node 22 LTS is not supported.
+
+**Context.** The project documented `>=22.5` on the grounds that `node:sqlite`
+landed in 22.5. It does exist there — behind `--experimental-sqlite`. The flag
+was only dropped in 23.4. A `bin` script cannot add a flag to its own process,
+so on any Node 22 the CLI fails at `new DatabaseSync(...)` with
+`ERR_UNKNOWN_BUILTIN_MODULE`. The documented floor had therefore never worked.
+
+This was found by a CI matrix leg pinned to the declared floor — the leg existed
+specifically to check that the floor was real rather than aspirational, and on
+its first run it wasn't.
+
+**Alternatives rejected.** Keeping 22 and documenting the flag: a CLI that only
+works when the user remembers an experimental flag is not a CLI. Re-exec'ing
+with the flag set: hides an experimental dependency behind a process spawn, and
+the failure mode when it goes wrong is worse than the honest error.
+
+**Consequences.**
+
+- 24 is the active LTS, so this is a supported line rather than a bleeding edge.
+- `.nvmrc` pins **the floor**, not the latest. The largest external risk to this
+  project is `node:sqlite` API drift, so development happens against the oldest
+  supported runtime.
+- CI runs the floor and the current release. Do not remove the floor leg; it is
+  the only thing that keeps `engines` honest.
+
+---
+
+## 2026-08-17 — The demo fixtures are product code under `src/`
+
+**Decision.** The synthetic builders live in `src/demo/`, not `test/`.
+
+**Context.** `src/cli.ts` used to `await import("../test/fixtures.js")` to serve
+`flightrec demo`. Test scaffolding was therefore a runtime dependency of the
+shipped binary, which left two bad options at publish time: ship the whole test
+tree in the tarball, or ship a `demo` command that throws
+`ERR_MODULE_NOT_FOUND` for every npm user — and `demo` is the first command a
+new user runs.
+
+**Consequences.**
+
+- `files` can be a clean `dist/src` allowlist with no test code in the package.
+- The test suite imports the same builders from `src/demo/`, so what the demo
+  shows and what the detectors are pinned against cannot drift apart.
+- **Do not "tidy" these back under `test/`.** It looks like misplaced test code
+  and it is not; moving it silently breaks the shipped demo, and the failure
+  only appears in an installed package, never in the repo.
+- `src/demo/index.ts` saves and restores `CLAUDE_CONFIG_DIR` /
+  `OPENCODE_STORAGE_DIR` around seeding. Without that, running `demo` in-process
+  leaves the environment pointing at throwaway fixture data and every later
+  ingest silently reads the wrong tree.
+
+---
+
+## 2026-08-17 — Biome, with four rules deliberately disabled
+
+**Decision.** One dev tool for lint, format and import order. Four recommended
+rules are off because they fight idioms this codebase uses on purpose.
+
+**Context.** `dependencies` is empty and stays empty, but the constraint that
+matters is transitive *dev* sprawl. ESLint plus typescript-eslint plus an
+import-order plugin plus Prettier plus eslint-config-prettier is five direct dev
+dependencies and roughly a hundred transitive ones. Biome is one, with no
+transitive JS dependencies, and covers all three jobs.
+
+**The four rules, and why each is off.**
+
+- `complexity/useLiteralKeys` — the codebase reads `process.env["X"]` and
+  `json["field"]` throughout. Bracket access on an index signature is correct
+  under `noUncheckedIndexedAccess`; this rule wanted 204 changes to dot access.
+- `suspicious/noAssignInExpressions` — `while ((m = re.exec(s)) !== null)` and
+  `??=` are the canonical forms. Rewriting them is strictly worse.
+- `correctness/noVoidTypeReturn` — `return sendJson(res, …)` in `src/server.ts`
+  is a deliberate early-return idiom that keeps the routing table flat.
+- `suspicious/noControlCharactersInRegex` — `src/checkOutput.ts` strips ANSI
+  escapes. The control characters are the entire point of the pattern.
+
+**Consequences.** Re-enabling any of these produces a large diff that changes no
+behaviour. `@biomejs/biome` is pinned to an exact version and Dependabot is told
+to skip it, because a formatter bump reformats the codebase and fails
+`npm run lint` until someone reruns `lint:fix`. Upgrade it deliberately, in its
+own commit, and add the SHA to `.git-blame-ignore-revs`.
+
+---
+
+## 2026-08-17 — The npm package name is scoped
+
+**Decision.** Published as `@spiatrenka/agent-flight-recorder`. The repository,
+the binary (`flightrec`), and the project name are unchanged.
+
+**Context.** `agent-flight-recorder` was already taken on npm by an unrelated,
+actively published MIT package described as "Open telemetry for coding-agent
+runs" — close enough to this project that people will conflate the two. There is
+no dispute path for a name someone is legitimately using. `flightrec` is also
+taken as a package name, though not as a binary name.
+
+**Consequences.** Scoping costs nothing structurally: no renaming anywhere in
+the tree, at the price of a longer `npx` line and slightly worse registry
+search ranking. The README carries a disclaimer under Known limitations. The
+`flightrec` binary name is kept because npm does not reserve bin names and a
+collision only affects someone who globally installs both packages.
+
+---
+
+## 2026-08-17 — The entry guard resolves `argv[1]`, and releases install the tarball
+
+**Decision.** `src/cli.ts` resolves `process.argv[1]` through `realpathSync`
+before comparing it to `import.meta.url`. Installing the packed tarball and
+running the binary through its `bin` symlink is a release gate.
+
+**Context.** The guard used to compare `import.meta.url` directly against
+`pathToFileURL(process.argv[1])`. `import.meta.url` is always the real file;
+`process.argv[1]` is whatever the caller typed. npm installs `bin` entries as
+symlinks, so for any global or `npm link` install the two never matched, `main()`
+never ran, and **the process exited 0 having printed nothing** — indistinguishable
+from success, and it would have been every npm user's first experience of the
+tool.
+
+The project had never exercised that path. Every invocation in development,
+in the npm scripts, and in the test suite ran `dist/src/cli.js` directly, where
+`argv[1]` already is the real path.
+
+**Consequences.**
+
+- `test/cli.test.ts` invokes the CLI through a symlink it creates, so this cannot
+  regress silently.
+- Before publishing, `npm pack` then install the tarball into a scratch
+  directory and run `./node_modules/.bin/flightrec demo` with a fresh `HOME`.
+  Checking `npm pack --dry-run` output is not sufficient: it verifies the file
+  list, not that the entry point runs.
+- General form of the lesson: the packaged artifact is a different program from
+  the repository, and only running it as a user would tests the difference.
+
+---
+
+## 2026-08-17 — `tsconfig` names its ambient types explicitly
+
+**Decision.** `"types": ["node"]` is set rather than relying on automatic
+`@types` inclusion.
+
+**Context.** TypeScript 7 no longer pulls in every package under
+`node_modules/@types` implicitly the way 5.x did. On upgrading, every reference
+to `process`, `console` and each `node:*` import failed to resolve until the
+dependency was named.
+
+**Consequences.** The one ambient type surface this project uses is now
+documented in the config, compilation does not scan unrelated `@types`
+packages, and an `@types/*` package installed as a side effect of some other
+tool cannot silently widen the global namespace. `@types/node` tracks the
+`engines` floor — when the floor moves, move the types with it.

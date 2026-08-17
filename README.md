@@ -65,10 +65,17 @@ npm run serve
 | `npm run report -- <run-id>` | print one postmortem | |
 | `npm run stats` | aggregate stats | |
 | `npm run flightrec -- <cmd>` | escape hatch for any CLI command | |
-| `npm run check` | typecheck **and** test — the pre-commit gate | ✓ |
+| `npm run check` | lint, typecheck **and** test — the pre-commit gate | ✓ |
 | `npm test` | build, then run the suite | ✓ |
 | `npm run test:fast` | run the suite against the current build | |
+| `npm run coverage` | the suite with thresholds enforced (94/80/92) | ✓ |
+| `npm run lint` | Biome in CI mode — fails on a formatting difference | |
+| `npm run lint:fix` | apply Biome's fixes and formatting | |
+| `npm run typecheck` | `tsc --noEmit` | |
 | `npm run build` / `rebuild` / `clean` | compile; `rebuild` cleans first | |
+
+Formatting is Biome's, not yours. `npm run check` fails on a formatting difference, so run
+`npm run lint:fix` before committing.
 
 The three entry points build first so a fresh clone works; the read-only
 commands skip it to stay fast. Builds are incremental — about 0.6s warm.
@@ -203,7 +210,8 @@ is what you actually want, use the thing that does it well:
 
 Determinism is the feature. The same run always produces the same verdict, so:
 
-- the detectors are regression-testable (`test/detectors.test.ts` pins 41 behaviours to fixtures),
+- the detectors are regression-testable — 203 tests across 12 files, each pinned to a fixture or to
+  a defect that actually occurred,
 - nothing is invented — every sentence traces to a field in the trace,
 - it costs nothing to run and works offline,
 - and it becomes the fixed baseline a future LLM narrator can be measured against.
@@ -288,12 +296,19 @@ src/
     opencodeFixtures.ts synthetic OpenCode storage tree
     opencodeDemo.ts    demo sessions covering the OpenCode-only paths
     index.ts           seedDemo — what `flightrec demo` runs
-test/
-  detectors.test.ts    regression suite (node:test)
+test/                  12 files, 203 tests (node:test)
+  detectors.test.ts    the core regression suite
   improvements.test.ts importer + analyzer regressions
+  findings.test.ts     the finding ids nothing else asserts
   checkOutput.test.ts  runner-output parsing
   claudeCode.test.ts   defects found validating against a real corpus
   dashboard.test.ts    the inline UI script, which tsc cannot see
+  server.test.ts       the HTTP API, over real sockets on port 0
+  security.test.ts     loopback-only bind and static path traversal
+  cli.test.ts          arg parsing, every command, and the bin entry
+  ingest.test.ts       discovery, skip-unchanged, error containment
+  sources.test.ts      the importer registry contract
+  store.test.ts        filters, aggregates, and schema migration
 docs/ANALYSIS.md       prior art and positioning
 docs/DECISIONS.md      retired port, validation policy
 ```
