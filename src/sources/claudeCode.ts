@@ -319,9 +319,11 @@ export class ClaudeCodeSource implements Source {
           kind: compaction ? "compaction" : "system",
           rawType: rtype,
           text: truncate(
-            textOf((obj["message"] as Json | undefined)?.["content"]) ||
-              obj["summary"] ||
-              obj["content"],
+            redactDeep(
+              textOf((obj["message"] as Json | undefined)?.["content"]) ||
+                obj["summary"] ||
+                obj["content"],
+            ),
             600,
           ),
         });
@@ -374,7 +376,7 @@ export class ClaudeCodeSource implements Source {
           ts,
           kind: "assistant_message",
           role: "assistant",
-          text: truncate(b["text"], 4000),
+          text: truncate(redactDeep(b["text"]), 4000),
           model,
           rawType: "assistant",
         });
@@ -384,7 +386,7 @@ export class ClaudeCodeSource implements Source {
           ts,
           kind: "thinking",
           role: "assistant",
-          text: truncate(b["thinking"] ?? b["text"], 2000),
+          text: truncate(redactDeep(b["thinking"] ?? b["text"]), 2000),
           model,
           rawType: "assistant",
         });
@@ -431,7 +433,7 @@ export class ClaudeCodeSource implements Source {
       ts,
       kind: meta ? "system" : "user_message",
       role: "user",
-      text: truncate(text, 4000),
+      text: truncate(redact(text), 4000),
       rawType: "user",
     });
     return idx;
@@ -634,7 +636,7 @@ function recordCommand(
   const command: Command = {
     eventIdx: resultIdx,
     ts,
-    command: cmd,
+    command: redact(cmd),
     category: classifyCommand(cmd),
     ok,
     exitCode,

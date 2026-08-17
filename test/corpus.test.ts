@@ -146,6 +146,48 @@ describe("redaction self-check", () => {
     assert.ok(kinds.length > 0, "an unmasked key must be reported");
     assert.ok(kinds.includes("sk- key"));
   });
+
+  // Precision matters more than recall here: redaction at ingest is the real
+  // defence, and an audit that reports 163 findings — every one of them
+  // documentation — is an audit nobody reads twice. Each case below is a real
+  // false positive measured against a 484-run corpus.
+  it("reports real credential material", () => {
+    for (const text of [
+      "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz012345",
+      "Authorization: Bearer a1b2c3d4e5f6g7h8i9j0k1",
+      "DATABASE_URL=postgres://app:hunter2xyz@db:5432/payments",
+    ]) {
+      assert.ok(survivingSecretKinds(text).length > 0, `must report: ${text.slice(0, 24)}`);
+    }
+  });
+
+  it("ignores documentation, prose, templates and formatting artifacts", () => {
+    for (const [text, why] of [
+      ["ANTHROPIC_API_KEY=sk-ant-...", "elided example"],
+      [
+        '"appPrivateKey": "-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----"',
+        "elided PEM",
+      ],
+      ["AUTH: required", "prose"],
+      ["TOKEN: optional", "prose"],
+      [`GITHUB_TOKEN=\${GITHUB_TOKEN}`, "shell interpolation"],
+      ["API_TOKEN=<your-token-here>", "angle-bracket template"],
+      ["PRIVATE_KEY-----\\n00069| -", "line-number gutter from a file read"],
+    ] as const) {
+      assert.deepEqual(
+        survivingSecretKinds(text),
+        [],
+        `${why} is not a leak: ${text.slice(0, 30)}`,
+      );
+    }
+  });
+
+  it("does not report JSON escaping as a credential", () => {
+    // Scanning a serialised document instead of its string fields made `\n` and
+    // `\"` satisfy the value pattern. The audit walks fields for this reason.
+    const doc = JSON.stringify({ text: "AUTH: required", note: "line one\nline two" });
+    assert.deepEqual(survivingSecretKinds(doc), []);
+  });
 });
 
 describe("tool input is redacted, not just tool output", () => {

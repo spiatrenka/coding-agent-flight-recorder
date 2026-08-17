@@ -288,7 +288,7 @@ export class OpenCodeSource implements Source {
       run.goal = t.length > 400 ? `${t.slice(0, 400)}…` : t;
       run.goalIsKnown = true;
     } else if (title && segmentIdx === 0) {
-      run.goal = title;
+      run.goal = redact(title);
       run.goalIsKnown = true;
     }
 
@@ -347,7 +347,7 @@ export class OpenCodeSource implements Source {
         ts: partTs,
         kind: role === "user" ? "user_message" : "assistant_message",
         role,
-        text: truncate(text, 4000),
+        text: truncate(redact(text), 4000),
         model,
         rawType: "text",
       });
@@ -360,7 +360,7 @@ export class OpenCodeSource implements Source {
         ts: partTs,
         kind: "thinking",
         role: "assistant",
-        text: truncate(part["text"], 2000),
+        text: truncate(redactDeep(part["text"]), 2000),
         model,
         rawType: "reasoning",
       });
@@ -505,7 +505,7 @@ export class OpenCodeSource implements Source {
     run.commands.push({
       eventIdx,
       ts,
-      command: cmd,
+      command: redact(cmd),
       category: classifyCommand(cmd),
       // OpenCode does not record an exit code; success comes from tool status,
       // refined by the output. Unknown stays unknown.

@@ -91,26 +91,60 @@ export function redactDeep<T>(value: T): T {
 }
 
 /**
+ * Could this matched text plausibly be real credential material?
+ *
+ * The audit below is a *secondary* check — redaction at ingest is the actual
+ * defence — so precision matters more than recall here. An audit that reports
+ * 163 findings, every one of them documentation, is an audit nobody reads twice.
+ *
+ * Measured against a real corpus, the false positives were all of three kinds:
+ * elided examples (`ANTHROPIC_API_KEY=sk-ant-...`), prose where a
+ * credential-named word is followed by an ordinary one (`AUTH: required`), and
+ * artifacts of file-read formatting (a line-number gutter like `\n00069| `).
+ */
+function plausiblyReal(matched: string): boolean {
+  if (matched.includes("...") || matched.includes("…")) return false; // elided example
+  if (matched.includes(MASK)) return false; // already scrubbed
+  return true;
+}
+
+/** Extra bar for the fuzzy catch-all: a lowercase English word is not a secret. */
+function plausibleValue(value: string): boolean {
+  if (value.length < 8) return false;
+  if (/^[<{$(]/.test(value)) return false; // ${VAR}, <your-key>, $(cmd)
+  if (/^\\[nrt]/.test(value)) return false; // escape artifact, not content
+  if (/^[a-z]+$/.test(value)) return false; // a plain English word
+  return /[A-Za-z]/.test(value) && /[0-9_-]/.test(value);
+}
+
+/**
  * Which credential shapes are *still present* in already-stored text.
  *
- * Used to audit the store after the fact: everything here should have been
- * masked on the way in, so a non-empty result means redaction was bypassed.
- * Returns pattern labels only, never the matched value — an audit that prints
- * the secret it found has defeated its own purpose.
+ * Everything here should have been masked on the way in, so a non-empty result
+ * means redaction was bypassed and is worth investigating. Returns pattern
+ * labels only, never the matched value — an audit that prints the secret it
+ * found has defeated its own purpose.
  *
- * Existing masks are neutralised before scanning. Without that, the
- * credential-named-variable pattern matches `TOKEN=[redacted]`, because
- * `[redacted]` is itself a run of non-whitespace characters, and every
- * correctly-scrubbed record would report as a survivor.
+ * Pass individual string fields, not a serialised document: in JSON, `\n` and
+ * `\"` become literal characters that satisfy the value pattern, and scanning a
+ * whole `JSON.stringify` output reports those escapes as credentials.
  */
 export function survivingSecretKinds(text: string | null | undefined): string[] {
   if (!text) return [];
-  const scrubbed = String(text).split(MASK).join(" ");
+  const subject = String(text);
   const kinds = new Set<string>();
+  const isCatchAll = (label: string): boolean => label === "credential-named variable";
+
   for (const [label, pattern] of PATTERNS) {
-    // Reset lastIndex: these are module-level /g regexes reused across calls.
+    // Module-level /g regexes are reused across calls, so reset before and after.
     pattern.lastIndex = 0;
-    if (pattern.test(scrubbed)) kinds.add(label);
+    for (const m of subject.matchAll(pattern)) {
+      const whole = m[0] ?? "";
+      if (!plausiblyReal(whole)) continue;
+      if (isCatchAll(label) && !plausibleValue(m[2] ?? "")) continue;
+      kinds.add(label);
+      break;
+    }
     pattern.lastIndex = 0;
   }
   return [...kinds].sort();

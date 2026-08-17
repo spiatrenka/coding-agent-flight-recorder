@@ -76,6 +76,15 @@ function rankedSeverity(a: string, b: string): string {
   return (SEVERITY_RANK[b] ?? 0) > (SEVERITY_RANK[a] ?? 0) ? b : a;
 }
 
+/** Every string inside a value, so scanning never sees JSON escaping. */
+function* stringsIn(value: unknown): Generator<string> {
+  if (typeof value === "string") yield value;
+  else if (Array.isArray(value)) for (const v of value) yield* stringsIn(v);
+  else if (value && typeof value === "object") {
+    for (const v of Object.values(value as Record<string, unknown>)) yield* stringsIn(v);
+  }
+}
+
 function counted(map: Map<string, number>, total: number): Counted[] {
   return [...map.entries()]
     .map(([key, n]) => ({ key, n, pct: pct(n, total) }))
@@ -149,10 +158,17 @@ export function auditCorpus(store: Store): CorpusReport {
 
     // Redaction audit against the stored document, which is what actually
     // persists — not against the transcript it came from.
-    const blob = JSON.stringify(run.trace);
-    masksApplied += blob.split(MASK).length - 1;
-    const kinds = survivingSecretKinds(blob);
-    if (kinds.length) {
+    //
+    // Field by field, never against `JSON.stringify(run.trace)`: in serialised
+    // form `\n` and `\"` are literal characters that satisfy the credential
+    // value pattern, so scanning the blob reports JSON escaping as leaked
+    // secrets. That produced 163 false findings on a real corpus.
+    const kinds = new Set<string>();
+    for (const s of stringsIn(run.trace)) {
+      masksApplied += s.split(MASK).length - 1;
+      for (const k of survivingSecretKinds(s)) kinds.add(k);
+    }
+    if (kinds.size) {
       runsWithSurvivors++;
       for (const k of kinds) survivingKinds.set(k, (survivingKinds.get(k) ?? 0) + 1);
     }
