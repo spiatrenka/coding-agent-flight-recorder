@@ -87,10 +87,17 @@ built with the `Builder` in `src/demo/fixtures.ts`.
 detector does what you wrote; it cannot tell you whether what you wrote is
 right, because you wrote both.
 
-So before proposing a detector — or a change to an existing one — run
-`flightrec ingest` over your own history, compute independently what *should*
-have fired, and compare in **both directions**: what fired that should not
-have, and what should have fired and did not. The second direction is the one
+So before proposing a detector — or a change to an existing one — measure it:
+
+```bash
+flightrec ingest --db /tmp/corpus.db   # your own history, into a scratch store
+npm run corpus -- --db /tmp/corpus.db  # fire counts, flagged paths, redaction audit
+rm /tmp/corpus.db
+```
+
+Then compare in **both directions**: what fired that should not have, and what
+should have fired and did not. Read the sensitive-paths table by eye — precision
+is only visible there, and that is where the worst defect so far was hiding. The second direction is the one
 people skip, and it is where both of the real defects were:
 
 - `verify.unbacked_claim` matched only prose forms like "all tests pass" and

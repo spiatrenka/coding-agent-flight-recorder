@@ -10,35 +10,51 @@
  * Over-redaction destroys the evidence value of the record.
  */
 
-const MASK = "[redacted]";
+export const MASK = "[redacted]";
 
-const PATTERNS: ReadonlyArray<[RegExp, string]> = [
-  // KEY=value where the key name looks like a credential
-  [
-    /\b([A-Z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|CLIENT_SECRET|AUTH)[A-Z0-9_]*)\s*[=:]\s*["']?([^\s"'#,;]{6,})/gi,
-    `$1=${MASK}`,
-  ],
-  [/(authorization\s*:\s*bearer\s+)\S+/gi, `$1${MASK}`],
+/**
+ * `[label, pattern, replacement]` — the label is what an audit reports.
+ *
+ * **Order matters: specific before generic.** The generic credential-named
+ * variable rule used to run first, and on `Authorization: Bearer <token>` it
+ * matched the key `Authorization` with the *word* `Bearer` as its six-character
+ * value — rewriting the line to `Authorization=[redacted] <token>` and leaving
+ * the token in the clear. The dedicated bearer rule then could not match,
+ * because the prefix it needs had already been destroyed. Keep the catch-all
+ * last so a precise rule always gets first refusal.
+ */
+const PATTERNS: ReadonlyArray<[string, RegExp, string]> = [
+  ["bearer token", /(authorization\s*:\s*bearer\s+)\S+/gi, `$1${MASK}`],
   // vendor key shapes
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, MASK],
-  [/\bghp_[A-Za-z0-9]{20,}/g, MASK],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, MASK],
-  [/\bAKIA[0-9A-Z]{16}\b/g, MASK],
-  [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, MASK],
-  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g, MASK],
+  ["sk- key", /\bsk-[A-Za-z0-9_-]{16,}/g, MASK],
+  ["github token", /\bghp_[A-Za-z0-9]{20,}/g, MASK],
+  ["github PAT", /\bgithub_pat_[A-Za-z0-9_]{20,}/g, MASK],
+  ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/g, MASK],
+  ["slack token", /\bxox[baprs]-[A-Za-z0-9-]{10,}/g, MASK],
+  ["JWT", /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g, MASK],
   // connection strings with inline credentials
-  [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@]+(@)/gi, `$1${MASK}$2`],
+  ["connection string", /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@]+(@)/gi, `$1${MASK}$2`],
   // PEM blocks
   [
+    "private key block",
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     `-----BEGIN PRIVATE KEY----- ${MASK} -----END PRIVATE KEY-----`,
+  ],
+  // Catch-all, last: KEY=value where the key name looks like a credential. The
+  // negative lookahead skips auth scheme words — `Bearer` is never itself the
+  // secret, and treating it as one both hid the real token and made an audit of
+  // an already-scrubbed store report a false survivor.
+  [
+    "credential-named variable",
+    /\b([A-Z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|CLIENT_SECRET|AUTH)[A-Z0-9_]*)\s*[=:]\s*["']?(?!(?:Bearer|Basic|Digest|Token)\b)([^\s"'#,;]{6,})/gi,
+    `$1=${MASK}`,
   ],
 ];
 
 export function redact(text: string | null | undefined): string {
   if (!text) return text ?? "";
   let out = String(text);
-  for (const [pattern, replacement] of PATTERNS) {
+  for (const [, pattern, replacement] of PATTERNS) {
     out = out.replace(pattern, replacement);
   }
   return out;
@@ -46,4 +62,56 @@ export function redact(text: string | null | undefined): string {
 
 export function containsSecret(text: string | null | undefined): boolean {
   return Boolean(text) && redact(text) !== String(text);
+}
+
+/**
+ * Redact every string inside an arbitrary JSON-ish value, preserving shape.
+ *
+ * Needed for tool *input*, not just tool output. When an agent writes a
+ * credential into a file, the credential is in the Edit call's `new_string` or
+ * the Write call's `content` — so scrubbing only the result text stores the
+ * secret verbatim in the field that matters most. That is the exact case
+ * `risk.secret_file_write` exists to flag, which made it the worst possible
+ * place to leave a gap.
+ *
+ * Structure is preserved because the dashboard and the analyzers read known
+ * keys (`file_path`, `command`) out of this object.
+ */
+export function redactDeep<T>(value: T): T {
+  if (typeof value === "string") return redact(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v)) as unknown as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = redactDeep(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
+/**
+ * Which credential shapes are *still present* in already-stored text.
+ *
+ * Used to audit the store after the fact: everything here should have been
+ * masked on the way in, so a non-empty result means redaction was bypassed.
+ * Returns pattern labels only, never the matched value — an audit that prints
+ * the secret it found has defeated its own purpose.
+ *
+ * Existing masks are neutralised before scanning. Without that, the
+ * credential-named-variable pattern matches `TOKEN=[redacted]`, because
+ * `[redacted]` is itself a run of non-whitespace characters, and every
+ * correctly-scrubbed record would report as a survivor.
+ */
+export function survivingSecretKinds(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const scrubbed = String(text).split(MASK).join(" ");
+  const kinds = new Set<string>();
+  for (const [label, pattern] of PATTERNS) {
+    // Reset lastIndex: these are module-level /g regexes reused across calls.
+    pattern.lastIndex = 0;
+    if (pattern.test(scrubbed)) kinds.add(label);
+    pattern.lastIndex = 0;
+  }
+  return [...kinds].sort();
 }

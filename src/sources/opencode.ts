@@ -44,7 +44,7 @@ import {
   secondsBetween,
   truncate,
 } from "../model.js";
-import { redact } from "../redact.js";
+import { redact, redactDeep } from "../redact.js";
 import type { DiscoveredFile, Source } from "./types.js";
 
 const IDLE_GAP_SECONDS = Number(process.env["FLIGHTREC_IDLE_GAP"] ?? 1800);
@@ -412,7 +412,7 @@ export class OpenCodeSource implements Source {
       role: "assistant",
       toolName: tool,
       toolUseId: callId,
-      toolInput: input,
+      toolInput: redactDeep(input),
       model,
       rawType: "tool",
     });

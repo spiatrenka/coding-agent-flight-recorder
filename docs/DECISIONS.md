@@ -362,3 +362,66 @@ a leading `…` when text was trimmed. CONTRIBUTING already required evidence to
 point at real event indices; the same standard applies to what the excerpt
 actually shows. When adding a detector whose trigger is a text match, quote the
 match.
+
+---
+
+## 2026-08-17 — Finding ids identify instances; `detectorOf` identifies detectors
+
+**Decision.** Instance-scoped finding ids stay as they are. Aggregation goes
+through `detectorOf()` in `src/model.ts` rather than a new stored field.
+
+**Context.** Three detectors embed a hash in the id — `loop.churn.<sha(path)>`,
+`loop.repeat_failure.<sha(cmd)>`, `loop.identical_call.<sig>` — so that a run
+churning four files produces four findings rather than one lumped together. That
+is right: each has its own evidence and its own suggested rule.
+
+The cost only shows up at scale. On a real corpus `GROUP BY finding_id` returns
+about 130 rows of mostly-singletons, and `stats()` had to fall back to grouping
+by category and severity, which cannot answer "which detector fires most often
+for me".
+
+**Why a helper and not a column.** Every id is `<category>.<name>` with an
+optional third segment, verified by enumerating all 16 emission sites — so the
+detector is derivable and needs no migration, no change to the stored `Finding`
+shape, and no risk of the two drifting apart. Adding a field would have meant
+touching the published document shape days before first release for information
+already present in it.
+
+**Consequences.** `flightrec corpus` groups on `detectorOf`. If a future detector
+uses a different id shape, it must still be `<category>.<name>[.<instance>]`.
+
+---
+
+## 2026-08-17 — Redaction covers tool input, and precise rules run first
+
+**Decision.** Tool *input* is scrubbed as well as tool output, and the generic
+credential-named-variable rule runs last.
+
+**Context.** Both defects were found by pointing `flightrec corpus` at this
+project's own demo data on the day the command was written. The audit reported a
+surviving credential shape in synthetic fixtures that were supposed to be clean.
+
+- **Tool input was never redacted.** `redact()` was applied to command output and
+  tool result text only. When an agent writes a credential into a file, the
+  credential is in the Edit call's `new_string` or the Write call's `content` —
+  so the store kept it verbatim. That is exactly the case
+  `risk.secret_file_write` exists to flag, which made it the worst place in the
+  codebase to have the gap.
+- **`Authorization: Bearer <token>` leaked its token.** The generic KEY=value
+  rule ran first, matched the key `Authorization` with the *word* `Bearer` as a
+  six-character value, and rewrote the line to `Authorization=[redacted]
+  <token>`. The dedicated bearer rule could then never match, because the prefix
+  it needed had been destroyed. The token survived in full.
+
+**Consequences.**
+
+- `redactDeep()` walks tool input and scrubs strings while preserving structure,
+  because the analyzers and the dashboard read known keys out of that object.
+- Pattern order is load-bearing: **specific before generic.** A new pattern goes
+  above the catch-all, and auth scheme words (`Bearer`, `Basic`, `Digest`) are
+  never treated as secret values.
+- Redaction still does not hide the *finding*: a test asserts the secret-file
+  write is reported even though the value is masked. A mitigation that concealed
+  the evidence would defeat the tool.
+- The store now audits itself. `flightrec corpus` reports masks applied and any
+  surviving credential shape, reporting pattern labels only and never the value.

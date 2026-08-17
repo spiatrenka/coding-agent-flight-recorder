@@ -215,6 +215,23 @@ export function makeRunId(source: string, sessionId: string, segment: number): s
   return `${source.slice(0, 2)}-${h}`;
 }
 
+/**
+ * The stable detector name behind a finding id.
+ *
+ * Finding ids are `<category>.<name>` with an optional third segment
+ * identifying *which* instance fired: `loop.churn` carries a hash of the file
+ * path, `loop.repeat_failure` a hash of the command, `loop.identical_call` the
+ * call signature. That is deliberate — one run churning four files produces four
+ * distinct findings rather than one lumped together.
+ *
+ * The cost is that the id cannot be grouped across runs, which is what you want
+ * for "which detector fires most often". Hence this: the first two segments are
+ * the detector, everything after is the instance.
+ */
+export function detectorOf(findingId: string): string {
+  return findingId.split(".", 2).join(".");
+}
+
 // --- derived helpers ---------------------------------------------------------
 
 export function filesTouched(run: Run): string[] {

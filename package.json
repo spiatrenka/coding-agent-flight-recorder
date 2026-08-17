@@ -65,7 +65,8 @@
     "start": "npm run serve",
     "list": "node dist/src/cli.js list",
     "report": "node dist/src/cli.js report",
-    "stats": "node dist/src/cli.js stats"
+    "stats": "node dist/src/cli.js stats",
+    "corpus": "node dist/src/cli.js corpus"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.8",

@@ -36,7 +36,7 @@ import {
   truncate,
   type Usage,
 } from "../model.js";
-import { redact } from "../redact.js";
+import { redact, redactDeep } from "../redact.js";
 import type { DiscoveredFile, Source } from "./types.js";
 
 export { classifyCommand } from "../commands.js";
@@ -396,7 +396,7 @@ export class ClaudeCodeSource implements Source {
           role: "assistant",
           toolName: str(b["name"]) ?? "unknown",
           toolUseId: str(b["id"]),
-          toolInput: isRecord(b["input"]) ? b["input"] : {},
+          toolInput: redactDeep(isRecord(b["input"]) ? b["input"] : {}),
           model,
           rawType: "assistant",
         };

@@ -4,6 +4,7 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+import { auditCorpus, formatCorpusReport } from "./corpus.js";
 import { ingest } from "./ingest.js";
 import type { Label } from "./model.js";
 import { serve } from "./server.js";
@@ -186,6 +187,21 @@ function cmdStats(args: Args): number {
   return 0;
 }
 
+function cmdCorpus(args: Args): number {
+  const store = new Store(args.db);
+  const report = auditCorpus(store);
+  if (report.coverage.runs === 0) {
+    console.log("no runs — try `flightrec ingest` first");
+    store.close();
+    return 1;
+  }
+  console.log(
+    args.flags.has("json") ? JSON.stringify(report, null, 2) : formatCorpusReport(report),
+  );
+  store.close();
+  return 0;
+}
+
 /** Ingest synthetic runs so the dashboard can be evaluated without real data. */
 async function cmdDemo(args: Args): Promise<number> {
   // Loaded on demand: the fixture builders are only needed by this one command,
@@ -223,6 +239,8 @@ Commands:
     --ingest            ingest before serving
   demo                  load synthetic runs to try the dashboard
   stats                 aggregate stats across stored runs
+  corpus                audit what the detectors did across the whole store
+    --json              machine-readable instead of a table
 
 Global:
   --db <path>           SQLite database (default ~/.flightrec/flightrec.db)
@@ -241,6 +259,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return cmdServe(args);
     case "stats":
       return cmdStats(args);
+    case "corpus":
+      return cmdCorpus(args);
     case "demo":
       return cmdDemo(args);
     default:

@@ -12,6 +12,33 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+### Added
+
+- `flightrec corpus` — audits a whole store: verdict distribution, per-detector
+  fire counts, verification status, command-outcome knowledge split by source,
+  every path flagged as sensitive, and a redaction self-check. `--json` for
+  machine-readable output. This is the tooling behind the corpus check that
+  `CONTRIBUTING.md` requires for detector changes.
+- `detectorOf()` in `src/model.ts` — the stable detector name behind an
+  instance-scoped finding id, so fire counts can be grouped across runs.
+
+### Fixed
+
+- **Redaction covered tool output but not tool input.** A credential the agent
+  wrote into a file was stored verbatim in the Edit call's `new_string` — the
+  exact case `risk.secret_file_write` exists to flag. Tool input is now scrubbed
+  too, with structure preserved.
+- **`Authorization: Bearer <token>` leaked its token.** The generic
+  credential-named-variable rule ran first and matched the *word* `Bearer` as a
+  six-character value, rewriting the line and destroying the prefix the bearer
+  rule needed. Precise rules now run before the catch-all, and auth scheme words
+  are never treated as secrets.
+- Secret-path detection no longer flags committed env templates
+  (`.env.example`) or directories named `secrets/`. On a 484-run corpus that
+  removed 36 of 41 false hits and 10 incorrect `risky` verdicts.
+- `verify.unbacked_claim` evidence now quotes the matched claim rather than the
+  first 220 characters of the message.
+
 ## [0.1.0] - 2026-08-16
 
 First public release.

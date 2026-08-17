@@ -70,6 +70,7 @@ npm run serve
 | `npm run list` | list analysed runs | |
 | `npm run report -- <run-id>` | print one postmortem | |
 | `npm run stats` | aggregate stats | |
+| `npm run corpus -- --db <path>` | audit what the detectors did across a whole store | |
 | `npm run flightrec -- <cmd>` | escape hatch for any CLI command | |
 | `npm run check` | lint, typecheck **and** test — the pre-commit gate | ✓ |
 | `npm test` | build, then run the suite | ✓ |
@@ -265,6 +266,10 @@ any interface outside `127.0.0.1`, `localhost` and `::1`.
 Redaction is deliberately conservative, and that is a real trade: over-redaction destroys the
 evidence value of the record, so it is a mitigation rather than a guarantee. **Treat
 `~/.flightrec/flightrec.db` as exactly as sensitive as `~/.claude` itself.**
+
+You can audit the store for yourself: `npm run corpus` reports how many redactions were applied and
+whether any credential shape survived into it. That check found two real redaction gaps in this
+project, so it is worth running rather than trusting.
 
 Ingest is also an *archival* act: Claude Code purges transcripts after 30 days by default, and this
 database outlives them. `rm ~/.flightrec/flightrec.db` is the complete deletion path — there is
