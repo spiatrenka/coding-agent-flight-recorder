@@ -29,6 +29,14 @@ import type { Verification } from "./verify.js";
 
 // --- sensitive path classification ------------------------------------------
 
+/**
+ * Env files that are conventionally *committed templates*: placeholder values,
+ * no secrets. `.env.example` was the single most-flagged path when the detectors
+ * were measured against a real corpus — 17 hits, all false — because
+ * `\.env(\.|$)` matches it just as readily as `.env.production`.
+ */
+const ENV_TEMPLATE_RE = /(^|\/)\.env\.(example|sample|template|dist|defaults?)$/i;
+
 const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/(^|\/)\.env(\.|$)/, "environment file"],
   [/\.(pem|key|p12|pfx|keystore)$/, "private key material"],
@@ -36,7 +44,11 @@ const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/(^|\/)\.ssh\//, "SSH configuration"],
   [/(^|\/)\.aws\/|(^|\/)\.gcloud\/|(^|\/)\.kube\/config/, "cloud credentials"],
   [/(^|\/)\.(npmrc|pypirc|netrc|git-credentials)$/, "package/registry credentials"],
-  [/(^|\/)(secrets?|credentials?)[./_-]/, "credentials file"],
+  // No `/` in the character class on purpose. With it, a *directory* named
+  // `secrets/` matched, so `scripts/secrets/create-intake-secrets.sh` and
+  // `src/secrets/index.ts` were reported as credential files — 19 false hits on
+  // a real corpus. Managing secrets is not the same as holding one.
+  [/(^|\/)(secrets?|credentials?)[._-]/, "credentials file"],
   [/(^|\/)service[-_]?account.*\.json$/, "service account key"],
 ];
 
@@ -55,6 +67,9 @@ export type PathTier = "secret" | "config" | null;
 
 export function classifyPath(path: string): { tier: PathTier; why: string | null } {
   const p = path.replace(/\\/g, "/");
+  // Checked before the secret patterns: a template is not a secret, and this is
+  // the one case where a more specific rule has to beat a more general one.
+  if (ENV_TEMPLATE_RE.test(p)) return { tier: null, why: null };
   for (const [re, why] of SECRET_PATTERNS) if (re.test(p)) return { tier: "secret", why };
   for (const [re, why] of CONFIG_PATTERNS) if (re.test(p)) return { tier: "config", why };
   return { tier: null, why: null };

@@ -101,9 +101,12 @@ people skip, and it is where both of the real defects were:
   *between* the edits. The finding's own text called each edit "a retry without
   new information", which was false in the majority of the cases it reported.
 
-Two detectors — `loop.revert` and `loop.stall_tail` — still have never fired on
-real data. Their thresholds are therefore guesses. If yours fires on a corpus,
-say so in the pull request; that is the evidence that matters most.
+Both detectors that once had no corpus evidence — `loop.revert` and
+`loop.stall_tail` — now have it: over 484 real runs they fire on 3 and 42 runs
+respectively. That only became visible on a corpus large enough to contain the
+behaviour; a 25-transcript sample showed neither. If your detector fires on a
+corpus, say so in the pull request, with counts. That is the evidence that
+matters most.
 
 See [`docs/DECISIONS.md`](docs/DECISIONS.md) for the full record.
 

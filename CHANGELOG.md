@@ -64,8 +64,9 @@ First public release.
   releases, so importer fixes may land in patch releases.
 - The Python port that existed before this release is retired — see
   [`docs/DECISIONS.md`](docs/DECISIONS.md).
-- `loop.revert` and `loop.stall_tail` are implemented and fixture-tested but
-  have never fired on a real corpus, so their thresholds are unvalidated.
+- `loop.revert` and `loop.stall_tail` now have corpus evidence: measured over
+  484 real runs they fire on 3 and 42 runs respectively. Earlier notes calling
+  them unvalidated were written against a 25-transcript sample.
 
 [Unreleased]: https://github.com/spiatrenka/agent-flight-recorder/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/spiatrenka/agent-flight-recorder/releases/tag/v0.1.0

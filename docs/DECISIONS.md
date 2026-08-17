@@ -308,3 +308,57 @@ documented in the config, compilation does not scan unrelated `@types`
 packages, and an `@types/*` package installed as a side effect of some other
 tool cannot silently widen the global namespace. `@types/node` tracks the
 `engines` floor — when the floor moves, move the types with it.
+
+---
+
+## 2026-08-17 — Secret-path detection excludes templates and directories
+
+**Decision.** `classifyPath` no longer treats a committed env *template* or a
+*directory* named `secrets/` as secret-bearing.
+
+**Context.** Measured against a 484-run corpus, `risk.secret_file_write` was
+wrong far more often than it was right: 36 of 41 path hits were false, and
+because the finding is high severity it forces the verdict to `risky`. Seven
+runs were graded `risky` on nothing else.
+
+Two independent causes, both in the patterns:
+
+- `/(^|\/)\.env(\.|$)/` matches `.env.example` exactly as readily as
+  `.env.production`. `.env.example` was the single most-flagged path in the
+  corpus — 17 hits — and is by convention a committed template of placeholders.
+- `/(^|\/)(secrets?|credentials?)[./_-]/` included `/` in the character class,
+  so a *directory* named `secrets/` matched. That reported
+  `scripts/secrets/create-intake-secrets.sh` and
+  `packages/shared/src/secrets/index.ts` as credential files. Code that manages
+  secrets is not a secret.
+
+**Consequences.** After the fix, on the same corpus: runs with a secret-file
+finding fell from 15 to 3, and the only paths still flagged are two genuine
+`.env` files. `risky` fell from 40 runs to 30, `productive` rose from 37 to 44.
+
+This is the third defect found by corpus measurement and not by fixtures, after
+`verify.unbacked_claim` and `loop.churn`. The pattern across all three is the
+same: a detector that passes every fixture can still be mostly wrong, because
+the fixture and the detector were written by the same person from the same
+assumption. Precision is only observable against data nobody authored.
+
+---
+
+## 2026-08-17 — Evidence quotes the match, not the head of the message
+
+**Decision.** `verify.unbacked_claim` excerpts the window around the matched
+claim rather than the first 220 characters of the message.
+
+**Context.** On the same corpus, 22 of 46 evidence excerpts (48%) showed a
+message's opening — a plan heading, a summary preamble — while the claim that
+triggered the finding sat further down and was not visible. Reading those
+findings, they looked like false positives. They were not: every flagged message
+genuinely contained a claim. The detection was right and the citation was
+useless, which is indistinguishable from being wrong if you are the person
+trying to check it.
+
+**Consequences.** Excerpts now contain the matched claim in 46 of 46 cases, with
+a leading `…` when text was trimmed. CONTRIBUTING already required evidence to
+point at real event indices; the same standard applies to what the excerpt
+actually shows. When adding a detector whose trigger is a text match, quote the
+match.

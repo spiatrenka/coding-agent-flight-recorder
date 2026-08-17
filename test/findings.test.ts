@@ -13,8 +13,9 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { analyze } from "../src/analyze/index.js";
+import { classifyPath } from "../src/analyze/risk.js";
 import {
-  type Builder,
+  Builder,
   fixtureBigDiff,
   fixtureExpensiveNoDiff,
   fixtureLongNoDiff,
@@ -141,5 +142,83 @@ describe("wasted spend", () => {
     const f = find(findings, "risk.cost_no_diff");
     assert.match(f.title, /with no file changes/);
     assert.equal(f.severity, run.usage.costUsd < 8 ? "medium" : "high");
+  });
+});
+
+// --------------------------------------------------------------------------
+
+describe("path classification precision", () => {
+  // Every case below is a real path from a 484-run corpus that the detectors
+  // were measured against. The false ones accounted for 36 of 41 secret-file
+  // hits and were the sole cause of 7 `risky` verdicts.
+
+  it("does not treat a committed env template as a secret", () => {
+    for (const p of [
+      "/x/.env.example",
+      "/x/.env.sample",
+      "/x/.env.template",
+      "/x/.env.dist",
+      "/x/.env.default",
+      "/x/.env.defaults",
+    ]) {
+      assert.equal(classifyPath(p).tier, null, `${p} is a template, not a secret`);
+    }
+  });
+
+  it("still treats real environment files as secrets", () => {
+    for (const p of ["/x/.env", "/x/.env.local", "/x/.env.production", "/x/services/.env"]) {
+      assert.equal(classifyPath(p).tier, "secret", `${p} holds real values`);
+    }
+  });
+
+  it("does not treat a directory named secrets as a credentials file", () => {
+    // Managing secrets is not holding one.
+    for (const p of [
+      "/x/scripts/secrets/create-intake-secrets.sh",
+      "/x/scripts/secrets/read-intake-secrets.sh",
+      "/x/packages/shared/src/secrets/index.ts",
+      "/x/src/credentials/loader.ts",
+    ]) {
+      assert.equal(classifyPath(p).tier, null, `${p} is code about secrets`);
+    }
+  });
+
+  it("still treats credential-bearing filenames as secrets", () => {
+    for (const p of [
+      "/x/secrets.yaml",
+      "/x/secrets.json",
+      "/x/credentials.json",
+      "/x/secret-key.txt",
+      "/x/secrets_prod.env",
+    ]) {
+      assert.equal(classifyPath(p).tier, "secret", `${p} names a credential`);
+    }
+  });
+});
+
+describe("unbacked claim evidence", () => {
+  it("quotes the claim rather than the head of a long message", () => {
+    const preamble = "## Goal\n\n" + "Convert the Jest configuration to TypeScript. ".repeat(12);
+    const b = new Builder({ start: new Date("2026-08-12T18:00:00Z") });
+    b.user("Convert the jest configs.");
+    b.edit("/Users/dev/code/payments-api/jest.config.ts", "module.exports", "export default");
+    b.say(`${preamble}\n\nAll tests pass, so this is done.`);
+    const { findings } = load(b);
+
+    const f = find(findings, "verify.unbacked_claim");
+    const excerpt = f.evidence[0]?.excerpt ?? "";
+    assert.match(excerpt, /all tests pass/i, "the excerpt must contain the matched claim");
+    assert.ok(excerpt.startsWith("…"), "a trimmed excerpt is marked as trimmed");
+  });
+
+  it("quotes from the start when the claim is already near it", () => {
+    const b = new Builder({ start: new Date("2026-08-12T19:00:00Z") });
+    b.user("Fix the rounding.");
+    b.edit("/Users/dev/code/payments-api/src/round.ts", "floor", "round");
+    b.say("All tests pass. Nothing else to do.");
+    const { findings } = load(b);
+    const excerpt = find(findings, "verify.unbacked_claim").evidence[0]?.excerpt ?? "";
+    assert.ok(!excerpt.startsWith("…"), "no ellipsis when nothing was trimmed");
+    assert.match(excerpt, /^All tests pass/);
   });
 });
