@@ -22,6 +22,12 @@ npx @spiatrenka/agent-flight-recorder serve   # dashboard at http://127.0.0.1:87
 dependencies. The only network code in the project is a server that refuses to bind anything
 but loopback.
 
+![The dashboard: a run list on the left, and a graded postmortem on the right showing the verdict,
+the one thing worth checking, and what the run changed.](docs/media/dashboard.png)
+
+*Synthetic demo data — `flightrec demo` produces exactly this, so you can try the dashboard before
+pointing it at your own history.*
+
 Why this exists, and what it deliberately isn't: [`docs/ANALYSIS.md`](docs/ANALYSIS.md).
 Decisions worth not re-litigating: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
