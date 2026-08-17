@@ -14,9 +14,10 @@ with one project-specific rule worth stating up front:
 
 ### Changed
 
-- **The detail pane leads with advice.** Tab order is now Findings · Firewall ·
-  Postmortem · Timeline · Files · Commands, opening on Findings. The two panels
-  carrying the product's claim were previously fifth and sixth.
+- **The detail pane reads as a drill-down.** Tab order is now Postmortem ·
+  Findings · Firewall · Files · Commands · Timeline — synthesis, then specifics,
+  then remedy, then evidence in increasing granularity. Findings and Firewall
+  were previously fifth and sixth.
 - **The run tape is expanded by default**, reversing an earlier decision — see
   `docs/DECISIONS.md`.
 - Paths are grouped and shown relative to the project root in `what changed`,

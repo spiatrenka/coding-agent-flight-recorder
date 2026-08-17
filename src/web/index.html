@@ -465,25 +465,27 @@ function renderRun(d){
     ${lede(a, pm)}
     ${stats(t, a, m)}
     <details class="tapewrap" open><summary>run shape</summary>${tape(t, a)}</details>
-    <!-- Advice before evidence. Findings is what needs attention and Firewall is
-         what to do about it; Timeline, Files and Commands are the evidence you
-         consult when you doubt those two. They used to come first. -->
+    <!-- Synthesis, then specifics, then remedy, then evidence in increasing
+         granularity: files (outcome), commands (actions), timeline (everything).
+         The lede above already states the one loud thing, so the first tab does
+         not have to carry it — it carries the whole picture instead. -->
     <div class="tabs" id="tabs">
+      ${tabBtn("postmortem","Postmortem")}
       ${tabBtn("findings","Findings", a.findings.length)}
       ${tabBtn("firewall","Firewall", pm.firewall.length)}
-      ${tabBtn("postmortem","Postmortem")}
-      ${tabBtn("timeline","Timeline", t.events.length)}
       ${tabBtn("files","Files", m.filesChanged)}
       ${tabBtn("commands","Commands", t.commands.length)}
+      ${tabBtn("timeline","Timeline", t.events.length)}
     </div>
     <div id="panel"></div>`;
 
   $("#tabs").onclick = e => {
     const b = e.target.closest(".tab"); if (!b) return; showTab(b.dataset.tab, d);
   };
-  // Land on the findings unless there are none to show, in which case the
-  // narrative is the most useful thing on the screen.
-  showTab(a.findings.length ? "findings" : "postmortem", d);
+  // Always the same tab. A default that moves depending on the run makes the
+  // panel you land on unpredictable, which costs more than the occasional
+  // better-chosen starting point buys.
+  showTab("postmortem", d);
 
   const toStop = $("#tostop");
   if (toStop) toStop.onclick = () => {

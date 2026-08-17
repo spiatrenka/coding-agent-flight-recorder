@@ -428,13 +428,13 @@ surviving credential shape in synthetic fixtures that were supposed to be clean.
 
 ---
 
-## 2026-08-17 — Advice before evidence: findings lead the detail pane
+## 2026-08-17 — Synthesis, then specifics, then remedy, then evidence
 
-**Decision.** Tab order is Findings · Firewall · Postmortem · Timeline · Files ·
-Commands, and Findings is selected by default when a run has any.
+**Decision.** Tab order is Postmortem · Findings · Firewall · Files · Commands ·
+Timeline, and Postmortem is always the default.
 
 **Context.** Findings was the fifth of six tabs and Firewall the sixth, so the
-first four tabs a reader met were evidence. Testing against a real corpus made
+first four panels a reader met were evidence. Testing against a real corpus made
 the consequence obvious: the two panels carrying the product's actual claim —
 what is wrong, and what to do about it — were the two you had to go looking for.
 
@@ -442,17 +442,37 @@ The competitive position here is actionable insight. A transcript viewer already
 shows you what happened; nothing else says whether the diff is trustworthy. An
 interface that leads with a timeline is presenting itself as the former.
 
+**Why not Findings first.** That was the first attempt, and it over-corrected on
+two counts. The **lede** sits above the tab strip and already states the one loud
+thing, so the first tab does not need to carry "what is wrong" — that is already
+answered before any tab is read. And once the stop point moved to the top of the
+Postmortem tab, the objection that the narrative buried the actionable content no
+longer held: the Postmortem panel now opens with the headline and the stop point,
+which is the whole picture in one read.
+
+So the strip reads as a drill-down — synthesis, then the specific findings, then
+the remedies, then the evidence — rather than as a ranking of importance. The
+Postmortem tab carries no Risk flags section, so it does not duplicate the
+Findings tab sitting next to it.
+
+**On the evidence order.** Files · Commands · Timeline is increasing granularity:
+the outcome, then the actions that produced it, then everything. Timeline was
+briefly placed ahead of the other two, which was simply wrong — it is the longest
+and least actionable panel in the product.
+
 **Consequences.**
 
-- Findings first, Firewall second, then the narrative, then the evidence you
-  consult when you doubt the first three. Files and Commands are demoted, not
-  dismissed — they are the citations behind the findings, and both now mark the
-  rows a finding actually named.
-- With Findings on screen first, its evidence text became the most prominent
-  content in the UI, which exposed how noisy repeated absolute paths were. The
-  project root is now stated once and stripped from the rest.
-- A run with no findings still opens on the Postmortem: leading with an empty
-  panel would be worse than leading with the narrative.
+- Files and Commands are demoted, not dismissed — they are the citations behind
+  the findings, and both mark the rows a finding actually named.
+- Promoting Findings, even briefly, exposed how noisy repeated absolute paths
+  were in its evidence text. The project root is now stated once and stripped
+  from the rest — a fix worth keeping regardless of tab order.
+- The default tab never varies by run. A default that moves depending on what a
+  run contains makes the panel you land on unpredictable, which costs more than
+  the occasional better-chosen starting point buys.
+- `flightrec report` markdown keeps its own order — Goal, Risk flags, stop point,
+  then the narrative. It is a standalone artifact with no tabs to drill into, so
+  a reader scanning it in a pull request wants the problems at the top.
 
 ---
 
