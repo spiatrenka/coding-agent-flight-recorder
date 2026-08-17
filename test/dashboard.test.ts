@@ -38,6 +38,7 @@ interface Renderers {
   cmdCell: (cmd: string) => string;
   relPath: (p: string, project: string | null) => string;
   evidenceText: (excerpt: string, project: string | null) => string;
+  runFromHash: (hash?: string) => string | null;
   tape: (t: unknown, a: unknown) => string;
   stats: (t: unknown, a: unknown, m: unknown) => string;
   timeline: (d: unknown) => string;
@@ -118,7 +119,7 @@ function loadRenderers(): Renderers {
     "document",
     `return (function(){${script}
       return {tape,stats,timeline,files,commands,findings,firewall,postmortem,
-              cmdCell,relPath,evidenceText};})()`,
+              cmdCell,relPath,evidenceText,runFromHash};})()`,
   ) as (d: unknown) => Renderers;
   return factory(doc);
 }
@@ -379,5 +380,36 @@ describe("files and commands connect to the findings", () => {
     assert.match(out, /t-secret[^>]*>destructive/);
     // The denied command outranks the passing test, so it appears first.
     assert.ok(out.indexOf("rm -rf /") < out.indexOf("npm test"), "attention-first ordering");
+  });
+});
+
+describe("linking to a run", () => {
+  const R = loadRenderers();
+
+  it("reads a run id out of the fragment", () => {
+    assert.equal(R.runFromHash("#run=cl-0ba5c9137399"), "cl-0ba5c9137399");
+    assert.equal(R.runFromHash("#foo=1&run=op-abc123def456"), "op-abc123def456");
+  });
+
+  it("returns null when there is no run in the fragment", () => {
+    for (const h of ["", "#", "#tab=files", "#runx=abc"]) {
+      assert.equal(R.runFromHash(h), null, `no run id in ${JSON.stringify(h)}`);
+    }
+  });
+
+  it("never yields a value that could be read as a path or markup", () => {
+    // The parsed value is only ever compared against run ids the server already
+    // sent, and an unknown id falls back to the newest run — so this is defence
+    // in depth rather than the actual guard. The charset is what it guarantees:
+    // no separators, no angle brackets, no quotes.
+    for (const h of ["#run=../../etc/passwd", "#run=<script>", '#run="onerror=', "#run=a/b"]) {
+      const got = R.runFromHash(h);
+      if (got === null) continue;
+      assert.doesNotMatch(got, /[/\\<>"'&?#]/, `unsafe characters survived from ${h}`);
+    }
+  });
+
+  it("does not treat an unrelated fragment as a run", () => {
+    assert.equal(R.runFromHash("#run="), null, "an empty value is not an id");
   });
 });

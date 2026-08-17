@@ -324,7 +324,12 @@ async function loadRuns(){
     + (hidden ? ` · ${hidden} trivial hidden` : "");
   renderSourceChips();
   renderRail();
-  if (!CURRENT && RUNS.length) selectRun(RUNS[0].run_id);
+  // A `#run=<id>` fragment wins over the newest-run default, so a link to a
+  // specific run survives being pasted into a bug report or an issue.
+  if (!CURRENT && RUNS.length){
+    const wanted = runFromHash();
+    selectRun(RUNS.some(r => r.run_id === wanted) ? wanted : RUNS[0].run_id);
+  }
   if (!RUNS.length) $("#detail").innerHTML = emptyState();
 }
 
@@ -430,8 +435,25 @@ $("#rescan").onclick = async e => {
 };
 
 /* ---------------- run detail ---------------- */
+/**
+ * The run id in the URL fragment, if there is one.
+ *
+ * Takes the hash as an argument so it is testable: this script is also evaluated
+ * outside a browser by test/dashboard.test.ts, where `location` does not exist.
+ */
+function runFromHash(hash){
+  const h = hash !== undefined ? hash
+    : (typeof location === "undefined" ? "" : location.hash);
+  const m = /(?:^|[#&])run=([A-Za-z0-9._-]+)/.exec(h || "");
+  return m ? m[1] : null;
+}
+
 async function selectRun(id){
   CURRENT = id;
+  // replaceState, not a hash assignment: writing location.hash pushes a history
+  // entry per click, so the back button would walk the runs you looked at
+  // instead of leaving the page.
+  try { history.replaceState(null, "", "#run=" + id); } catch (e) {}
   renderRail();
   const d = await api("/api/runs/" + id);
   renderRun(d);

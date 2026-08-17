@@ -12,66 +12,7 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
-### Changed
-
-- **The detail pane reads as a drill-down.** Tab order is now Postmortem ·
-  Findings · Firewall · Files · Commands · Timeline — synthesis, then specifics,
-  then remedy, then evidence in increasing granularity. Findings and Firewall
-  were previously fifth and sixth.
-- **The run tape is expanded by default**, reversing an earlier decision — see
-  `docs/DECISIONS.md`.
-- Paths are grouped and shown relative to the project root in `what changed`,
-  the Files tab and finding evidence. Files that escape the project keep their
-  absolute form, since that is the notable case.
-- Files and Commands mark the rows a finding actually named — sensitive and
-  config files, denied and destructive commands — so the evidence connects to the
-  verdict instead of just listing rows.
-- Commands are ordered by what needs attention (denied, failed, destructive)
-  rather than chronologically; the Timeline tab remains chronological.
-- Long commands are truncated from the *middle*, never the tail, with the full
-  text one click away. The tail is where `--force`, `| sh` and `> file` live.
-- `rescan` and the theme toggle moved out of the verdict filter row, which now
-  carries explicit `verdict` and `source` labels.
-
-### Fixed
-
-- **A verification tail is no longer called waste.** The stop-point narrative
-  claimed "nothing changed on disk, so the tail was pure overhead" even when the
-  tail was entirely tests — while printing the check count one line above.
-- The stop point now states a confidence level; previously it offered none, which
-  invited a heuristic to be read as a certainty.
-- Stop-point timestamps are formatted rather than raw ISO strings, in the
-  dashboard and in `flightrec report` alike. Fixed to UTC, because a
-  locale-dependent rendering would make stored markdown differ between machines.
-
-### Added
-
-- `flightrec corpus` — audits a whole store: verdict distribution, per-detector
-  fire counts, verification status, command-outcome knowledge split by source,
-  every path flagged as sensitive, and a redaction self-check. `--json` for
-  machine-readable output. This is the tooling behind the corpus check that
-  `CONTRIBUTING.md` requires for detector changes.
-- `detectorOf()` in `src/model.ts` — the stable detector name behind an
-  instance-scoped finding id, so fire counts can be grouped across runs.
-
-### Fixed
-
-- **Redaction covered tool output but not tool input.** A credential the agent
-  wrote into a file was stored verbatim in the Edit call's `new_string` — the
-  exact case `risk.secret_file_write` exists to flag. Tool input is now scrubbed
-  too, with structure preserved.
-- **`Authorization: Bearer <token>` leaked its token.** The generic
-  credential-named-variable rule ran first and matched the *word* `Bearer` as a
-  six-character value, rewriting the line and destroying the prefix the bearer
-  rule needed. Precise rules now run before the catch-all, and auth scheme words
-  are never treated as secrets.
-- Secret-path detection no longer flags committed env templates
-  (`.env.example`) or directories named `secrets/`. On a 484-run corpus that
-  removed 36 of 41 false hits and 10 incorrect `risky` verdicts.
-- `verify.unbacked_claim` evidence now quotes the matched claim rather than the
-  first 220 characters of the message.
-
-## [0.1.0] - 2026-08-16
+## [0.1.0] - 2026-08-17
 
 First public release.
 
@@ -110,7 +51,71 @@ First public release.
   `number | null` for cost mean *unknown*, handled distinctly from `false` and
   `0`. Neither agent records exit codes, so check outcomes are parsed from
   runner output instead.
-- CLI: `ingest`, `list`, `report`, `serve`, `stats`, `demo`.
+- CLI: `ingest`, `list`, `report`, `serve`, `stats`, `demo`, `corpus`.
+- **`flightrec corpus`** — audits a whole store in one command: verdict
+  distribution, per-detector fire counts, verification status, command-outcome
+  knowledge split by source, every path flagged as sensitive, and a redaction
+  self-check that scans for credential shapes which escaped masking. `--json` for
+  machine-readable output. This is the tooling behind the corpus check that
+  `CONTRIBUTING.md` requires for any detector change.
+- Every run has its own URL in the dashboard (`#run=<id>`), so a specific run can
+  be linked in an issue or handed to a colleague.
+
+### Changed during pre-release review
+
+These landed after the first draft of this file and before anything was
+published, so they are part of 0.1.0 rather than a later version. Kept as their
+own section because they are the result of using the tool against a real corpus,
+which is worth being visible.
+
+- **The detail pane reads as a drill-down.** Tab order is now Postmortem ·
+  Findings · Firewall · Files · Commands · Timeline — synthesis, then specifics,
+  then remedy, then evidence in increasing granularity. Findings and Firewall
+  were previously fifth and sixth.
+- **The run tape is expanded by default**, reversing an earlier decision — see
+  `docs/DECISIONS.md`.
+- Paths are grouped and shown relative to the project root in `what changed`,
+  the Files tab and finding evidence. Files that escape the project keep their
+  absolute form, since that is the notable case.
+- Files and Commands mark the rows a finding actually named — sensitive and
+  config files, denied and destructive commands — so the evidence connects to the
+  verdict instead of just listing rows.
+- Commands are ordered by what needs attention (denied, failed, destructive)
+  rather than chronologically; the Timeline tab remains chronological.
+- Long commands are truncated from the *middle*, never the tail, with the full
+  text one click away. The tail is where `--force`, `| sh` and `> file` live.
+- `rescan` and the theme toggle moved out of the verdict filter row, which now
+  carries explicit `verdict` and `source` labels.
+
+- **A verification tail is no longer called waste.** The stop-point narrative
+  claimed "nothing changed on disk, so the tail was pure overhead" even when the
+  tail was entirely tests — while printing the check count one line above.
+- The stop point now states a confidence level; previously it offered none, which
+  invited a heuristic to be read as a certainty.
+- Stop-point timestamps are formatted rather than raw ISO strings, in the
+  dashboard and in `flightrec report` alike. Fixed to UTC, because a
+  locale-dependent rendering would make stored markdown differ between machines.
+
+### Found and fixed by validating against a real corpus
+
+Every item here was found by running the tool over 484 real runs and checking
+what fired in both directions. None were visible to the test suite, which was
+passing throughout. `docs/DECISIONS.md` records the pattern.
+
+- **Redaction covered tool output but not tool input.** A credential the agent
+  wrote into a file was stored verbatim in the Edit call's `new_string` — the
+  exact case `risk.secret_file_write` exists to flag. Tool input is now scrubbed
+  too, with structure preserved.
+- **`Authorization: Bearer <token>` leaked its token.** The generic
+  credential-named-variable rule ran first and matched the *word* `Bearer` as a
+  six-character value, rewriting the line and destroying the prefix the bearer
+  rule needed. Precise rules now run before the catch-all, and auth scheme words
+  are never treated as secrets.
+- Secret-path detection no longer flags committed env templates
+  (`.env.example`) or directories named `secrets/`. On a 484-run corpus that
+  removed 36 of 41 false hits and 10 incorrect `risky` verdicts.
+- `verify.unbacked_claim` evidence now quotes the matched claim rather than the
+  first 220 characters of the message.
 
 ### Notes
 
