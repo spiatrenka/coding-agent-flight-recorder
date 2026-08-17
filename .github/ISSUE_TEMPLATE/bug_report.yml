@@ -64,7 +64,7 @@ body:
     id: version
     attributes:
       label: Package version
-      placeholder: output of `npm ls -g @spiatrenka/agent-flight-recorder`, or the commit sha
+      placeholder: output of `npm ls -g coding-agent-flight-recorder`, or the commit sha
     validations:
       required: true
 

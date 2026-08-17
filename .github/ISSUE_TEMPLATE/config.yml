@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/spiatrenka/agent-flight-recorder/security/advisories/new
+    url: https://github.com/spiatrenka/coding-agent-flight-recorder/security/advisories/new
     about: Report privately. Do not open a public issue for a vulnerability.

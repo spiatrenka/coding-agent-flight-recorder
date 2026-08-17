@@ -1,9 +1,9 @@
 # Agent Flight Recorder
 
-[![npm](https://img.shields.io/npm/v/@spiatrenka/agent-flight-recorder)](https://www.npmjs.com/package/@spiatrenka/agent-flight-recorder)
-[![node](https://img.shields.io/node/v/@spiatrenka/agent-flight-recorder)](https://nodejs.org)
+[![npm](https://img.shields.io/npm/v/coding-agent-flight-recorder)](https://www.npmjs.com/package/coding-agent-flight-recorder)
+[![node](https://img.shields.io/node/v/coding-agent-flight-recorder)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![CI](https://github.com/spiatrenka/agent-flight-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/spiatrenka/agent-flight-recorder/actions/workflows/ci.yml)
+[![CI](https://github.com/spiatrenka/coding-agent-flight-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/spiatrenka/coding-agent-flight-recorder/actions/workflows/ci.yml)
 
 Local post-hoc forensics for coding-agent runs. Reads the session data **Claude Code** and
 **OpenCode** already write to your disk, segments it into runs, and produces a postmortem that
@@ -14,8 +14,8 @@ answers one question:
 No instrumentation, no wrapper, no account. It works on runs that already happened.
 
 ```bash
-npx @spiatrenka/agent-flight-recorder demo    # synthetic runs, every verdict
-npx @spiatrenka/agent-flight-recorder serve   # dashboard at http://127.0.0.1:8787
+npx coding-agent-flight-recorder demo    # synthetic runs, every verdict
+npx coding-agent-flight-recorder serve   # dashboard at http://127.0.0.1:8787
 ```
 
 **Nothing leaves your machine.** No network calls, no telemetry, no account, zero runtime
@@ -42,7 +42,7 @@ Node 24+ (for `node:sqlite`). **Zero runtime dependencies.**
 Against your own history, with the CLI installed globally:
 
 ```bash
-npm install -g @spiatrenka/agent-flight-recorder
+npm install -g coding-agent-flight-recorder
 flightrec ingest
 flightrec serve
 ```
@@ -378,7 +378,9 @@ Two things are worth copying from `opencode.ts` when you write one:
   are separator-sensitive; rather than claim support nobody has verified, it is left unclaimed.
 - The `flightrec` binary name may collide if you have also installed the unrelated `flightrec`
   package from npm.
-- Not affiliated with the unrelated `agent-flight-recorder` package on npm.
+- Not affiliated with the similarly named `agent-flight-recorder` package on npm, which is
+  deprecated and redirects elsewhere. This project is `coding-agent-flight-recorder`; npm search
+  hides deprecated packages, so you may not see the other one at all.
 - Run segmentation uses an idle-gap heuristic. A run interrupted by a long lunch splits in two;
   `FLIGHTREC_IDLE_GAP` tunes it.
 - Command success is read from exit codes where the transcript records them and inferred from

@@ -16,7 +16,7 @@ Pre-1.0, fixes land on `main` and ship in the next release.
 
 ## Reporting a vulnerability
 
-Use GitHub's **[private vulnerability reporting](https://github.com/spiatrenka/agent-flight-recorder/security/advisories/new)**.
+Use GitHub's **[private vulnerability reporting](https://github.com/spiatrenka/coding-agent-flight-recorder/security/advisories/new)**.
 If that is unavailable, email **siarhei.piatrenka@gmail.com** with `flightrec
 security` in the subject.
 

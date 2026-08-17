@@ -1,16 +1,16 @@
 {
-  "name": "@spiatrenka/agent-flight-recorder",
+  "name": "coding-agent-flight-recorder",
   "version": "0.1.0",
   "description": "Local post-hoc forensics and postmortems for coding-agent runs",
   "license": "MIT",
   "author": "Sergey Petrenko <siarhei.piatrenka@gmail.com>",
-  "homepage": "https://github.com/spiatrenka/agent-flight-recorder#readme",
+  "homepage": "https://github.com/spiatrenka/coding-agent-flight-recorder#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spiatrenka/agent-flight-recorder.git"
+    "url": "git+https://github.com/spiatrenka/coding-agent-flight-recorder.git"
   },
   "bugs": {
-    "url": "https://github.com/spiatrenka/agent-flight-recorder/issues"
+    "url": "https://github.com/spiatrenka/coding-agent-flight-recorder/issues"
   },
   "keywords": [
     "claude-code",
@@ -31,9 +31,6 @@
   },
   "engines": {
     "node": ">=24.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "files": [
     "dist/src",

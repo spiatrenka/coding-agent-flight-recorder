@@ -149,5 +149,5 @@ passing throughout. `docs/DECISIONS.md` records the pattern.
   484 real runs they fire on 3 and 42 runs respectively. Earlier notes calling
   them unvalidated were written against a 25-transcript sample.
 
-[Unreleased]: https://github.com/spiatrenka/agent-flight-recorder/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/spiatrenka/agent-flight-recorder/releases/tag/v0.1.0
+[Unreleased]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/releases/tag/v0.1.0

@@ -243,22 +243,40 @@ own commit, and add the SHA to `.git-blame-ignore-revs`.
 
 ---
 
-## 2026-08-17 — The npm package name is scoped
+## 2026-08-17 — Published as `coding-agent-flight-recorder`, unscoped
 
-**Decision.** Published as `@spiatrenka/agent-flight-recorder`. The repository,
-the binary (`flightrec`), and the project name are unchanged.
+**Decision.** The npm package and the GitHub repository are both
+`coding-agent-flight-recorder`. The binary stays `flightrec`; the project is still
+called Agent Flight Recorder in prose.
 
-**Context.** `agent-flight-recorder` was already taken on npm by an unrelated,
-actively published MIT package described as "Open telemetry for coding-agent
-runs" — close enough to this project that people will conflate the two. There is
-no dispute path for a name someone is legitimately using. `flightrec` is also
-taken as a package name, though not as a binary name.
+**Context.** `agent-flight-recorder` is registered on npm and cannot be used. Worth
+recording precisely, because the first version of this entry got it wrong by calling
+the holder "actively published": it is three versions pushed within one hour on
+25 May 2026, deprecated the same day with *"Renamed to @j___avi/tokentrace"*, and
+untouched since. npm does not release deprecated names, so it is unavailable
+regardless — but that is a fair basis for a name-transfer request to npm support
+later, which an actively maintained package would not have been.
 
-**Consequences.** Scoping costs nothing structurally: no renaming anywhere in
-the tree, at the price of a longer `npx` line and slightly worse registry
-search ranking. The README carries a disclaimer under Known limitations. The
-`flightrec` binary name is kept because npm does not reserve bin names and a
-collision only affects someone who globally installs both packages.
+`flightrec` is also taken as a package name, though not as a binary name.
+
+**Why unscoped rather than a scope.** A scope was the first choice, then the npm
+account turned out to be `siarhei.piatrenka`, which would have made the scope
+`@siarhei.piatrenka/…` — valid but awkward, with a dot in it. Weighed against a
+short unscoped name that matches the repository, the unscoped name won on the thing
+that matters most for a CLI: what a stranger types.
+
+**Consequences.**
+
+- Package name, repository name and README title now agree, which removes the alias
+  note a mismatch would have needed. The repository was renamed while still private,
+  the only free moment to do it.
+- `publishConfig.access` was dropped: it is meaningful only for scoped packages.
+  `--access public` stays in `release.yml` as an explicit statement of intent.
+- The first publish needs a broad npm token, because a granular token can be limited
+  to a scope but not to a package that does not yet exist. It is tightened to the
+  package immediately afterwards.
+- The `flightrec` binary name is kept: npm does not reserve bin names, and a
+  collision only affects someone who globally installs both packages.
 
 ---
 

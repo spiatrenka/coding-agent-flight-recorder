@@ -164,7 +164,7 @@ you:
 
 If you disagree with a grade, `npm run corpus` reports what fired across a whole
 store, and a
-[wrong-verdict issue](https://github.com/spiatrenka/agent-flight-recorder/issues/new?template=wrong_verdict.yml)
+[wrong-verdict issue](https://github.com/spiatrenka/coding-agent-flight-recorder/issues/new?template=wrong_verdict.yml)
 is the most useful kind of report this project receives — detector accuracy is the
 one quality signal it cannot generate for itself.
 
