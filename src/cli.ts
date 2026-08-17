@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** flightrec command line. */
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { ingest } from "./ingest.js";
@@ -248,7 +249,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * Was this module run directly, rather than imported?
+ *
+ * `import.meta.url` is always the real path, but `process.argv[1]` is whatever
+ * the caller typed — and npm installs `bin` entries as symlinks, so for a
+ * globally installed CLI the two never match. Comparing them naively makes the
+ * installed binary exit 0 having done nothing at all. Resolve the invoked path
+ * before comparing.
+ */
+function invokedDirectly(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return false; // argv[1] is not a real path (a REPL, an eval, a bundler)
+  }
+}
+
+if (invokedDirectly()) {
   silenceSqliteWarning();
   void main().then((code) => {
     if (code !== 0) process.exitCode = code;

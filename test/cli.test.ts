@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -301,5 +301,19 @@ describe("the installed binary", () => {
 
   it("exits 1 when a command fails", () => {
     assert.equal(exec(["report", "nope", "--db", db]).status, 1);
+  });
+
+  // npm installs `bin` entries as symlinks, so this is how every globally
+  // installed copy is invoked — and it is the one path the guard used to get
+  // wrong. `import.meta.url` is the real file; `process.argv[1]` is the symlink.
+  // Comparing them without resolving made the installed CLI print nothing and
+  // exit 0, which looks exactly like success.
+  it("runs when invoked through a bin symlink", () => {
+    const link = join(tmp, "flightrec-link");
+    rmSync(link, { force: true });
+    symlinkSync(CLI_JS, link);
+
+    const out = execFileSync(process.execPath, [link], { encoding: "utf8" });
+    assert.match(out, /Usage: flightrec/, "a symlinked bin must still run main()");
   });
 });
