@@ -19,6 +19,9 @@ try{ if (localStorage.getItem("flightrec-theme") === "light")
   --rule:#232e39; --rule-soft:#1a232c;
   --ink:#e2e8ee; --muted:#93a2b0; --faint:#68788a;
   --normal:#5fbf8d; --caution:#d59a45; --waste:#9d90de; --warning:#e5717f;
+  /* `unchanged` is ~40% of runs and needs no attention, so it recedes rather
+     than adding a fifth alarm colour. */
+  --quiet:#7d8b99;
   --trace:#4fbcd6; --trace-soft:#16323d;
   --highlight:#3a2f12; --warn-bg:#241c0e;
   --shadow:0 1px 2px rgba(0,0,0,.5);
@@ -31,6 +34,7 @@ try{ if (localStorage.getItem("flightrec-theme") === "light")
   --rule:#c9d1da; --rule-soft:#dfe4ea;
   --ink:#101820; --muted:#5f6c7b; --faint:#8b97a3;
   --normal:#1c6e52; --caution:#a85d00; --waste:#5b4b9c; --warning:#ae1f2b;
+  --quiet:#78838f;
   --trace:#0b6c88; --trace-soft:#cfe3ea;
   --highlight:#fff6d6; --warn-bg:#fff8ec;
   --shadow:0 1px 2px rgba(16,24,32,.06);
@@ -84,6 +88,16 @@ button{font:inherit;color:inherit;cursor:pointer}
 .t-config{color:var(--ground);background:var(--caution)}
 .t-outside{color:var(--ground);background:var(--waste)}
 .card.hl{outline:2px solid var(--trace);outline-offset:2px}
+/* the badge is a control now; keep it looking like the badge it was */
+button.badge{border:0;font:inherit;line-height:inherit;text-align:left}
+button.badge{box-shadow:inset 0 -1px 0 rgba(0,0,0,.25)}
+.whyverdict{margin:10px 0 18px;max-width:62ch}
+.whyverdict h3{margin-top:14px}
+.whyverdict h3:first-child{margin-top:0}
+.whyfacts{width:auto;margin:0 0 4px}
+.whyfacts td{padding:2px 18px 2px 0;border:0;font-size:12px;color:var(--muted)}
+.whyfacts td:first-child{color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+.whydocs{font-size:12px;color:var(--muted);margin-top:12px}
 .cmdfull>summary{cursor:pointer;list-style:none}
 .cmdfull>summary::-webkit-details-marker{display:none}
 .cmdfull>summary::after{content:" ⤢";color:var(--faint);font-size:10px}
@@ -125,6 +139,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* verdict colours, used identically everywhere */
 .v-productive{--v:var(--normal)} .v-questionable{--v:var(--caution)}
 .v-wasteful{--v:var(--waste)} .v-risky{--v:var(--warning)}
+.v-unchanged{--v:var(--quiet)}
 .dot{background:var(--v,var(--faint))}
 
 /* ---------- run header ---------- */
@@ -283,6 +298,7 @@ td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
       <span class="toollabel">verdict</span>
       <button type="button" class="chip" data-label="" aria-pressed="true">all</button>
       <button type="button" class="chip v-productive" data-label="productive" aria-pressed="false">productive</button>
+      <button type="button" class="chip v-unchanged" data-label="unchanged" aria-pressed="false">unchanged</button>
       <button type="button" class="chip v-questionable" data-label="questionable" aria-pressed="false">questionable</button>
       <button type="button" class="chip v-wasteful" data-label="wasteful" aria-pressed="false">wasteful</button>
       <button type="button" class="chip v-risky" data-label="risky" aria-pressed="false">risky</button>
@@ -471,9 +487,12 @@ function renderRun(d){
   $("#detail").innerHTML = `
     <div class="v-${esc(a.label)}">
       <div class="verdict">
-        <span class="badge">${esc(a.label)}</span>
+        <button type="button" class="badge" id="whyverdict"
+                aria-expanded="false" aria-controls="verdictwhy"
+                title="what does this verdict mean?">${esc(a.label)}</button>
         <span class="reason">${esc(a.labelReason)}</span>
       </div>
+      <div class="card whyverdict" id="verdictwhy" hidden>${verdictWhy(a, t)}</div>
       <div class="goalline">${esc(t.goal || "No prompt in this segment — likely a resumed or automated continuation.")}</div>
       <div class="crumbs">
         <span>${esc(t.projectPath || "unknown project")}</span>
@@ -508,6 +527,14 @@ function renderRun(d){
   // panel you land on unpredictable, which costs more than the occasional
   // better-chosen starting point buys.
   showTab("postmortem", d);
+
+  const why = $("#whyverdict");
+  const whyPanel = $("#verdictwhy");
+  if (why && whyPanel) why.onclick = () => {
+    const open = whyPanel.hasAttribute("hidden");
+    if (open) whyPanel.removeAttribute("hidden"); else whyPanel.setAttribute("hidden", "");
+    why.setAttribute("aria-expanded", String(open));
+  };
 
   const toStop = $("#tostop");
   if (toStop) toStop.onclick = () => {
@@ -635,6 +662,67 @@ function drawTape(){
 /* The one sentence that decides what you do next. Everything else on the page
    is evidence for it. Ordered by what would change a decision: a stop point
    beats a finding, a finding beats a clean bill of health. */
+/* ---------------- what the verdict means ---------------- */
+
+/* One sentence per label, matching docs/GRADING.md. These are definitions of the
+   category, not of this run — the run-specific part is labelReason. */
+const LABEL_MEANS = {
+  productive: "Files changed and every test, build or lint that ran ended green.",
+  unchanged: "The repository was not modified. For a question, a review or an investigation that is the expected outcome, not a problem.",
+  questionable: "Something changed, but nothing in the run proves it works — or a check is still failing.",
+  wasteful: "Time, money or repeated attempts went in and the repository came out unchanged.",
+  risky: "A sensitive or destructive action happened. This overrides every other verdict, however good the diff was.",
+};
+
+/* What the cascade would have needed to reach a different label. Derived from the
+   branch that fired, so it never invents advice the rules cannot support. */
+const LABEL_NEXT = {
+  "changed-verified": null,
+  "changed-unverified": "A passing test, build or lint would make this <b>productive</b>.",
+  "changed-failing": "Getting the failing check green would make this <b>productive</b>.",
+  "changed-looping-unverified": "A passing check would lift this to <b>questionable</b>, and removing the repetition would clear the loop findings.",
+  "no-diff-brief": "Nothing to change — no edits were attempted.",
+  "no-diff-spent": "An applied edit would move this out of <b>wasteful</b>; as it stands the run spent something and left nothing behind.",
+  "no-diff-opaque": "The shell wrote files the transcript cannot see. Check the working tree, or use an edit tool so the diff is recorded.",
+  "risk-override": "Nothing about the diff can clear this. Address the sensitive or destructive action, or arm a rule so it cannot happen unsupervised.",
+  fallback: "The signals disagree; read the findings.",
+};
+
+const RULE_LABEL = {
+  "risk-override": "a sensitive or destructive finding",
+  "no-diff-opaque": "no recorded diff, but shell writes are possible",
+  "no-diff-spent": "no diff, after real time, money or repetition",
+  "changed-looping-unverified": "a diff, repetition, and no passing check",
+  "changed-verified": "a diff, and every check green",
+  "changed-failing": "a diff, with a check still failing",
+  "changed-unverified": "a diff, and nothing run to check it",
+  "no-diff-brief": "no diff, briefly, with no repetition",
+  fallback: "no rule matched cleanly",
+};
+
+function verdictWhy(a, t){
+  const m = a.metrics || {};
+  const facts = [
+    ["diff", m.netDiffLines ? `+${m.linesAdded}/−${m.linesRemoved} across ${m.filesChanged} file(s)` : "nothing changed"],
+    ["verification", a.verification ? a.verification.status : "unknown"],
+    ["duration", m.durationS == null ? "unknown" : dur(m.durationS)],
+    ["cost", m.costKnown ? "$" + Number(m.costUsd).toFixed(2) : "unknown"],
+  ];
+  const next = LABEL_NEXT[a.labelRule];
+  return `
+    <h3>What "${esc(a.label)}" means</h3>
+    <p>${esc(LABEL_MEANS[a.label] || "")}</p>
+    <h3>Why this run</h3>
+    <p>Matched on ${esc(RULE_LABEL[a.labelRule] || a.labelRule)} —
+       rules are evaluated in order and the first match wins.</p>
+    <table class="whyfacts"><tbody>${facts.map(([k, val]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${esc(String(val))}</td></tr>`).join("")}</tbody></table>
+    ${next ? `<h3>What would change it</h3><p>${next}</p>` : ""}
+    <p class="whydocs">The full rules, in evaluation order:
+      <a href="https://github.com/spiatrenka/agent-flight-recorder/blob/main/docs/GRADING.md"
+         target="_blank" rel="noreferrer">docs/GRADING.md</a>.</p>`;
+}
+
 function lede(a, pm){
   const sp = a.stopPoint;
   if (sp){

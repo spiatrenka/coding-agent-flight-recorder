@@ -28,7 +28,14 @@ import { allLoopFindings } from "./loops.js";
 import { allRiskFindings } from "./risk.js";
 import { allVerificationFindings, analyzeVerification, type Verification } from "./verify.js";
 
-export const ANALYZER_VERSION = "1.0.0";
+/**
+ * Bumped when grading changes in a way that would relabel a stored run.
+ *
+ * 1.1.0 added the `unchanged` label, so a store graded by 1.0.0 still shows those
+ * runs as `questionable`. `flightrec list` and the dashboard say so rather than
+ * leaving a silent mix — the store is an archive, so deleting it is not an answer.
+ */
+export const ANALYZER_VERSION = "1.1.0";
 
 export interface StopPoint {
   eventIdx: number;
@@ -65,6 +72,8 @@ export interface Analysis {
   runId: string;
   label: Label;
   labelReason: string;
+  /** Which branch of the cascade decided the label — the explanation, not decoration. */
+  labelRule: LabelRule;
   findings: Finding[];
   verification: Verification;
   stopPoint: StopPoint | null;
@@ -89,7 +98,7 @@ export function analyze(run: Run): Analysis {
     (a, b) => sev(b) - sev(a) || a.category.localeCompare(b.category) || a.id.localeCompare(b.id),
   );
 
-  const { label, reason } = assignLabel(run, verification, findings);
+  const { label, reason, rule } = assignLabel(run, verification, findings);
   const stopPoint = findStopPoint(run, findings);
 
   const metrics: Metrics = {
@@ -118,6 +127,7 @@ export function analyze(run: Run): Analysis {
     runId: run.runId,
     label,
     labelReason: reason,
+    labelRule: rule,
     findings,
     verification,
     stopPoint,
@@ -128,15 +138,30 @@ export function analyze(run: Run): Analysis {
   };
 }
 
+/** Stable identifier for which branch of the cascade decided the label. */
+export type LabelRule =
+  | "risk-override"
+  | "no-diff-opaque"
+  | "no-diff-spent"
+  | "changed-looping-unverified"
+  | "changed-verified"
+  | "changed-failing"
+  | "changed-unverified"
+  | "no-diff-brief"
+  | "fallback";
+
 /**
- * Assign one of four labels. Risk always wins: a run that touched credentials is
+ * Assign one of five labels. Risk always wins: a run that touched credentials is
  * not 'productive' regardless of how good the diff was.
+ *
+ * `rule` names the branch that matched so the UI can say *why* rather than only
+ * *what* — first match wins, so which branch fired is the whole explanation.
  */
 function assignLabel(
   run: Run,
   v: Verification,
   findings: Finding[],
-): { label: Label; reason: string } {
+): { label: Label; reason: string; rule: LabelRule } {
   const risky = findings.filter(
     (f) =>
       ((f.category === "secrets" || f.category === "destructive") && sev(f) >= 2) ||
@@ -146,6 +171,7 @@ function assignLabel(
   if (worstRisk) {
     return {
       label: "risky",
+      rule: "risk-override",
       reason:
         `${worstRisk.title.toLowerCase()} — sensitive or destructive actions take precedence ` +
         `over output quality`,
@@ -166,6 +192,7 @@ function assignLabel(
     const n = unrecordedWrites(run).length;
     return {
       label: "questionable",
+      rule: "no-diff-opaque",
       reason:
         `no edits recorded, but ${n} shell command(s) may have changed files — ` +
         `the diff is not visible in the transcript, so check the working tree`,
@@ -178,12 +205,17 @@ function assignLabel(
     if (expensive) why.push(`~$${(run.usage.costUsd ?? 0).toFixed(2)}`);
     if (loops.length) why.push(`${loops.length} repetition finding(s)`);
     const caveat = opaque ? " (shell writes may not be reflected)" : "";
-    return { label: "wasteful", reason: `no file changes after ${why.join(", ")}${caveat}` };
+    return {
+      label: "wasteful",
+      rule: "no-diff-spent",
+      reason: `no file changes after ${why.join(", ")}${caveat}`,
+    };
   }
 
   if (changed && loops.length && v.status !== "passed") {
     return {
       label: "wasteful",
+      rule: "changed-looping-unverified",
       reason:
         `${loops.length} repetition finding(s) and no passing verification — the diff exists ` +
         `but nothing shows it works`,
@@ -194,27 +226,46 @@ function assignLabel(
     return findings.some((f) => sev(f) >= 2)
       ? {
           label: "productive",
+          rule: "changed-verified",
           reason: `${v.summary}, with ${findings.length} finding(s) worth a look`,
         }
-      : { label: "productive", reason: `${files} file(s) changed and ${v.summary}` };
+      : {
+          label: "productive",
+          rule: "changed-verified",
+          reason: `${files} file(s) changed and ${v.summary}`,
+        };
   }
 
   if (changed && (v.status === "failed" || v.status === "mixed")) {
-    return { label: "questionable", reason: "files changed but verification is still failing" };
+    return {
+      label: "questionable",
+      rule: "changed-failing",
+      reason: "files changed but verification is still failing",
+    };
   }
   if (changed && v.status === "not_run") {
     return {
       label: "questionable",
+      rule: "changed-unverified",
       reason: "files changed, nothing run to confirm the change works",
     };
   }
   if (!changed && !longRun && !loops.length) {
+    // Not `questionable`. The repository is untouched and nothing suggests the run
+    // was trying to change it — a question answered, a file read, a review. Calling
+    // that "questionable" put it in the same bucket as an unverified diff, which is
+    // the opposite situation, and made that label 60% of a real corpus.
     return {
-      label: "questionable",
-      reason: "no file changes — investigation or a question answered, not a code change",
+      label: "unchanged",
+      rule: "no-diff-brief",
+      reason: "nothing was changed — a question, a review or an investigation, not a code change",
     };
   }
-  return { label: "questionable", reason: "partial progress with unresolved signals" };
+  return {
+    label: "questionable",
+    rule: "fallback",
+    reason: "partial progress with unresolved signals",
+  };
 }
 
 /** The earliest moment a stopping rule would have fired, plus what happened after. */

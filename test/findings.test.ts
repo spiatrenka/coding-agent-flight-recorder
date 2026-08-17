@@ -19,7 +19,10 @@ import {
   fixtureBigDiff,
   fixtureExpensiveNoDiff,
   fixtureLongNoDiff,
+  fixtureProductive,
+  fixtureQuestion,
   fixtureRevert,
+  fixtureRisky,
   fixtureStall,
   fixtureUnverifiedClaim,
   fixtureWideDiff,
@@ -335,5 +338,51 @@ describe("what changed, grouped", () => {
     assert.ok(cols.length >= 2);
     // Files in the same group start their stats at the same column.
     assert.equal(new Set(cols.slice(0, 2)).size, 1, "aligned within src/api/");
+  });
+});
+
+// --------------------------------------------------------------------------
+
+describe("the unchanged label", () => {
+  it("does not claim a shell-write run is unchanged", () => {
+    // Rule 2 must keep returning `questionable`. A run whose writes went through
+    // the shell is *uncertain*, not unchanged, and the project went out of its way
+    // to keep those two claims separate — sweeping it into `unchanged` would assert
+    // something the trace cannot support.
+    const b = new Builder({ start: new Date("2026-08-12T09:30:00Z") });
+    b.user("Unpack the vendor bundle into ./out");
+    b.bash("tar -xzf vendor.tar.gz -C ./out", { stdout: "x out/a.js\nx out/b.js" });
+    b.say("Unpacked.");
+    const { run } = load(b);
+    const a = analyze(run);
+
+    assert.equal(a.label, "questionable", "shell writes are uncertain, not unchanged");
+    assert.equal(a.labelRule, "no-diff-opaque");
+    assert.match(a.labelReason, /not visible in the transcript/);
+  });
+
+  it("calls a brief investigation unchanged, and says so without judgement", () => {
+    const { run } = load(fixtureQuestion());
+    const a = analyze(run);
+    assert.equal(a.label, "unchanged");
+    assert.equal(a.labelRule, "no-diff-brief");
+    assert.doesNotMatch(a.labelReason, /questionable|waste|problem/i);
+  });
+
+  it("still calls a long empty run wasteful, not unchanged", () => {
+    // `unchanged` is for runs that were not trying to change anything. Time or
+    // money with nothing to show is a different claim and keeps its own label.
+    const { run } = load(fixtureLongNoDiff());
+    const a = analyze(run);
+    assert.equal(a.label, "wasteful");
+    assert.equal(a.labelRule, "no-diff-spent");
+  });
+
+  it("records which rule decided every label", () => {
+    for (const b of [fixtureQuestion(), fixtureProductive(), fixtureRisky()]) {
+      const a = analyze(load(b).run);
+      assert.ok(a.labelRule, "labelRule is what lets the UI explain the verdict");
+      assert.notEqual(a.labelRule, "fallback", "a fixture should match a real branch");
+    }
   });
 });

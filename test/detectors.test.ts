@@ -96,6 +96,9 @@ describe("verdicts", () => {
     ["risky", "risky"],
     ["unverifiedClaim", "questionable"],
     ["longNoDiff", "wasteful"],
+    // The no-change case. Before `unchanged` existed this shared `questionable`
+    // with unverifiedClaim above — two opposite situations under one label.
+    ["question", "unchanged"],
   ];
   for (const [fixture, want] of expected) {
     it(`labels the ${fixture} fixture '${want}'`, () => {

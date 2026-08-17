@@ -487,6 +487,28 @@ export function fixtureExpensiveNoDiff(): Builder {
   return b;
 }
 
+/**
+ * A question answered. Reads, no edits, over in well under five minutes.
+ *
+ * The fixture set had no run that reached the `unchanged` branch: the only other
+ * no-diff fixture runs for nineteen minutes and lands on `wasteful`. Without this
+ * one the demo cannot show all five verdicts, which is its stated job.
+ */
+export function fixtureQuestion(): Builder {
+  const b = new Builder({ start: new Date("2026-08-13T15:00:00Z") });
+  b.user("Where do we decide whether a refund is still inside the window?");
+  b.read("/Users/dev/code/payments-api/src/refunds/window.ts");
+  b.read("/Users/dev/code/payments-api/src/refunds/policy.ts");
+  b.bash("rg -n 'refundWindow' src/", {
+    stdout: "src/refunds/window.ts:14\nsrc/refunds/policy.ts:8",
+  });
+  b.say(
+    "`isWithinRefundWindow` in src/refunds/window.ts:14 is the decision. " +
+      "policy.ts only supplies the day count it compares against.",
+  );
+  return b;
+}
+
 export const ALL: Record<string, () => Builder> = {
   productive: fixtureProductive,
   wasteful: fixtureWasteful,
@@ -499,6 +521,7 @@ export const ALL: Record<string, () => Builder> = {
   wideDiff: fixtureWideDiff,
   bigDiff: fixtureBigDiff,
   expensiveNoDiff: fixtureExpensiveNoDiff,
+  question: fixtureQuestion,
 };
 
 export function buildAll(root: string): Record<string, string> {

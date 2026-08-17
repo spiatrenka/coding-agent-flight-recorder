@@ -3,7 +3,7 @@
 
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-
+import { ANALYZER_VERSION } from "./analyze/index.js";
 import { auditCorpus, formatCorpusReport } from "./corpus.js";
 import { ingest } from "./ingest.js";
 import type { Label } from "./model.js";
@@ -13,6 +13,7 @@ import { defaultDbPath, Store } from "./store.js";
 
 const LABEL_MARK: Record<Label, string> = {
   productive: "+",
+  unchanged: ".",
   questionable: "?",
   wasteful: "~",
   risky: "!",
@@ -151,9 +152,31 @@ function cmdList(args: Args): number {
     : store.listRuns({ ...opts, limit: 100000, includeTrivial: true }).length -
       store.listRuns({ ...opts, limit: 100000 }).length;
   const note = hidden > 0 ? `  (${hidden} trivial hidden — --all to show)` : "";
-  console.log(`\n${runs.length} run(s).${note}  + productive  ? questionable  ~ wasteful  ! risky`);
+  staleNotice(store);
+  console.log(
+    `\n${runs.length} run(s).${note}  + productive  . unchanged  ? questionable  ~ wasteful  ! risky`,
+  );
   store.close();
   return 0;
+}
+
+/**
+ * Say when stored runs were graded by a different analyzer.
+ *
+ * Grading changed in 1.1.0 (the `unchanged` label), and nothing regrades a store
+ * automatically — so without this a user sees a mix of old and new labels with no
+ * explanation.
+ */
+function staleNotice(store: Store): void {
+  const versions = (store.stats()["analyzer_versions"] ?? {}) as Record<string, number>;
+  const stale = Object.entries(versions).filter(([v]) => v !== ANALYZER_VERSION);
+  if (!stale.length) return;
+  const n = stale.reduce((sum, [, count]) => sum + count, 0);
+  const which = stale.map(([v, count]) => `${count} by ${v}`).join(", ");
+  console.log(
+    `\n${n} run(s) were graded by an older analyzer (${which}); this build is ` +
+      `${ANALYZER_VERSION}. Re-run \`flightrec ingest --force\` to regrade them.`,
+  );
 }
 
 function cmdReport(args: Args): number {
@@ -230,7 +253,7 @@ Commands:
     --limit <n>         default 40
     --project <path>
     --source <claude_code|opencode>
-    --label <productive|questionable|wasteful|risky>
+    --label <productive|unchanged|questionable|wasteful|risky>
     --all               include trivial runs (no tool calls, no diff, seconds long)
   report <run-id>       print a run's postmortem
     --json              full trace + analysis instead of markdown

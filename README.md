@@ -139,17 +139,25 @@ Type-level conventions worth knowing while reading:
 
 ## What it shows
 
-**Verdict.** Every run gets one of four labels, assigned from repository-facing evidence:
+**Verdict.** Every run gets one of five labels, assigned from repository-facing evidence:
 
 | | |
 |---|---|
-| **productive** | useful diff, checks passed or clear progress |
-| **questionable** | partial progress, unresolved failures, or nothing run to verify the change |
-| **wasteful** | no useful diff, repeated loops, or high cost/time for nothing |
+| **productive** | files changed and every check that ran ended green |
+| **unchanged** | the repository was not modified — a question, a review, an investigation |
+| **questionable** | something changed, but nothing proves it works |
+| **wasteful** | time, money or repeated attempts went in, repository came out unchanged |
 | **risky** | sensitive files or dangerous commands involved |
 
 `risky` overrides everything else. A run that wrote to `.env` is not "productive" no matter how
 good the diff was.
+
+`unchanged` is deliberately quiet, and deliberately not a criticism: on a real corpus it is around
+40% of runs, because most sessions are conversations. Lumping those in with unverified diffs — as an
+earlier version did — made a single label 60% of everything and told you nothing.
+
+**Every rule, in evaluation order: [`docs/GRADING.md`](docs/GRADING.md).** The dashboard will also
+tell you: click the verdict badge and it names the rule that fired and what would change it.
 
 **The run tape.** A time-proportional strip of the whole run: edits above the axis (height = lines
 changed), command results below (red = failed), your prompts as dots, compaction as a dashed rule.

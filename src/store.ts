@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS runs (
     goal TEXT,
     label TEXT,
     label_reason TEXT,
+    analyzer_version TEXT,
     max_severity TEXT,
     verification_status TEXT,
     files_changed INTEGER DEFAULT 0,
@@ -148,7 +149,12 @@ export class Store {
         (r) => r.name,
       ),
     );
-    const added: Array<[string, string]> = [["trivial", "INTEGER DEFAULT 0"]];
+    const added: Array<[string, string]> = [
+      ["trivial", "INTEGER DEFAULT 0"],
+      // Added so staleness is queryable: the label vocabulary changed, and a store
+      // graded by an older analyzer keeps its old labels until a forced re-ingest.
+      ["analyzer_version", "TEXT"],
+    ];
     for (const [name, decl] of added) {
       if (!cols.has(name)) this.db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${decl}`);
     }
@@ -169,11 +175,11 @@ export class Store {
         `INSERT INTO runs (run_id, source, session_id, segment, project_path, git_branch,
             started_at, ended_at, duration_s, goal, label, label_reason, max_severity,
             verification_status, files_changed, lines_added, lines_removed, total_tokens,
-            cost_usd, cost_known, n_findings, n_events, trivial, source_file, content_hash,
-            ingested_at, trace_json, analysis_json, postmortem_json)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            cost_usd, cost_known, n_findings, n_events, trivial, analyzer_version,
+            source_file, content_hash, ingested_at, trace_json, analysis_json, postmortem_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(run_id) DO UPDATE SET
-            trivial=excluded.trivial,
+            trivial=excluded.trivial, analyzer_version=excluded.analyzer_version,
             label=excluded.label, label_reason=excluded.label_reason,
             max_severity=excluded.max_severity,
             verification_status=excluded.verification_status,
@@ -210,6 +216,7 @@ export class Store {
         analysis.findings.length,
         run.events.length,
         analysis.trivial ? 1 : 0,
+        analysis.analyzerVersion,
         run.sourceFile,
         hash,
         now,
@@ -319,9 +326,19 @@ export class Store {
          GROUP BY category, severity ORDER BY n DESC LIMIT 12`,
       )
       .all();
+    // Which analyzer graded what. A store is an archive, so a mix of versions is
+    // normal after an upgrade — the caller decides whether to say so.
+    const versionRows = this.db
+      .prepare(
+        `SELECT COALESCE(analyzer_version,'unknown') v, COUNT(*) n FROM runs
+         GROUP BY v ORDER BY n DESC`,
+      )
+      .all() as unknown as Array<{ v: string; n: number }>;
+
     return {
       ...row,
       labels: Object.fromEntries(labelRows.map((r) => [r.label, r.n])),
+      analyzer_versions: Object.fromEntries(versionRows.map((r) => [r.v, r.n])),
       top_findings: topFindings,
     };
   }

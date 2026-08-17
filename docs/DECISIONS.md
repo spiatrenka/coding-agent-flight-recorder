@@ -520,3 +520,54 @@ because it will come up again.
 - Timestamps in prose are formatted, and fixed to UTC rather than locale —
   `toLocaleString` would make stored markdown differ between machines, and
   determinism is the product.
+
+---
+
+## 2026-08-17 — A fifth verdict, because `questionable` was two things
+
+**Decision.** `unchanged` joins the four existing labels, taking the no-diff-and-brief
+branch of the cascade. It renders muted rather than as a fifth alarm colour.
+
+**Context.** Rule 8 of `assignLabel` returned `questionable` for a run that
+changed nothing in under five minutes with no repetition. Rule 7 returned the same
+label for a run that changed files and never checked them. Those are opposite
+situations: one did not try to modify the repository, the other modified it without
+evidence.
+
+Measured over a real 493-run corpus the effect was stark — `questionable` was **60%
+of every run**, and roughly two thirds of those had changed nothing at all. A label
+covering 60% of everything carries no information, which is exactly why someone
+would have to ask what it means.
+
+After the split: `questionable` 16%, `unchanged` 44%. `productive`, `wasteful` and
+`risky` are unmoved, because no rule other than 8 changed.
+
+**Why a new label rather than better prose.** The tool's headline question is
+*should I trust this diff*. When there is no diff the question does not apply, and a
+taxonomy that cannot say so will keep hedging. This was also the last moment the
+change was free: labels become an API on first publish — the `--label` filter, the
+API responses, and the `label` column in every user's store.
+
+**Consequences.**
+
+- `unchanged` is **visually quiet** — grey-blue, not green and not amber. It is 44%
+  of runs and they need no attention; the previous problem was that 44% of runs
+  shouted. A label that recedes is doing its job.
+- **Rule 2 deliberately stays `questionable`.** A run whose writes went through the
+  shell is *uncertain*, not unchanged. The project already went out of its way to
+  keep "the diff is not visible" separate from "nothing changed"; sweeping it into
+  `unchanged` would assert something the trace cannot support. A test pins this.
+- `Analysis.labelRule` records which branch fired, so the UI can explain the verdict
+  instead of only stating it. It lives in `analysis_json`, so no schema migration.
+- `ANALYZER_VERSION` is now **read**, not just recorded. It was stored from the
+  start and never used, so a store graded by an older analyzer kept its old labels
+  silently. `flightrec list` and the dashboard now say so and name the counts. The
+  store is an archive — telling someone to delete it is not an answer.
+
+**Still open, measured but not decided.** Rule 3 sends a no-diff run over five
+minutes to `wasteful` even with no repetition and under a dollar spent. On the same
+corpus that is 21 of 90 such runs; the other 69 were driven by cost or repetition.
+A ten-minute code review is not waste, and `risk.duration_no_diff`'s own text admits
+as much — so the label and the finding disagree. Restricting `wasteful` to
+repetition or real spend is defensible and would move those 21 runs. Left as a
+decision rather than folded in silently.

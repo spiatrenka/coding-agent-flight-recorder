@@ -39,7 +39,17 @@ export type FindingCategory =
   | "destructive"
   | "verification"
   | "efficiency";
-export type Label = "productive" | "questionable" | "wasteful" | "risky";
+/**
+ * The five verdicts.
+ *
+ * `unchanged` exists because "the repository is untouched" and "the change has
+ * no evidence behind it" are opposite situations that used to share
+ * `questionable` — which on a real corpus made that one label 60% of every run
+ * and therefore useless. A session that answered a question is not questionable;
+ * the tool's own headline question, whether to trust the diff, does not apply
+ * when there is no diff.
+ */
+export type Label = "productive" | "unchanged" | "questionable" | "wasteful" | "risky";
 export type CommandCategory = "test" | "build" | "lint" | "vcs" | "pkg" | "shell";
 export type EditOp = "create" | "edit" | "multi_edit" | "notebook" | "delete" | "unknown";
 

@@ -63,6 +63,23 @@ First public release.
 
 ### Changed during pre-release review
 
+- **A fifth verdict, `unchanged`.** "The repository was not modified" and "the
+  change has no evidence behind it" used to share `questionable`, which on a real
+  493-run corpus made that one label 60% of every run — and roughly two thirds of
+  those had changed nothing at all. Splitting them takes `questionable` to 16%,
+  where it means exactly one thing. `unchanged` renders muted, because ~40% of runs
+  carry it and they need no attention.
+- **The verdict badge explains itself.** Click it for what the label means in
+  general, which rule fired and the values that decided it, and what would change
+  the verdict — "a passing test, build or lint would make this productive",
+  derived from the cascade rather than invented.
+- **`docs/GRADING.md`** documents every rule in evaluation order, including which
+  findings force `risky`, which look like they should and do not, and the soft
+  spots worth arguing with.
+- `flightrec list` and the dashboard say when stored runs were graded by an older
+  analyzer, instead of showing a silent mix of old and new labels. The store is an
+  archive, so re-ingesting is a choice rather than a default.
+
 These landed after the first draft of this file and before anything was
 published, so they are part of 0.1.0 rather than a later version. Kept as their
 own section because they are the result of using the tool against a real corpus,

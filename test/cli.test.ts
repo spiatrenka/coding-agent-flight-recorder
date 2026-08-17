@@ -142,7 +142,7 @@ describe("list", () => {
 
   it("marks verdicts with their symbols and explains the legend", async () => {
     await run("list", "--all");
-    assert.match(stdout(), /\+ productive\s+\? questionable\s+~ wasteful\s+! risky/);
+    assert.match(stdout(), /\+ productive\s+\. unchanged\s+\? questionable\s+~ wasteful\s+! risky/);
   });
 
   it("filters by label", async () => {

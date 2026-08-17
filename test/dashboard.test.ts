@@ -39,6 +39,7 @@ interface Renderers {
   relPath: (p: string, project: string | null) => string;
   evidenceText: (excerpt: string, project: string | null) => string;
   runFromHash: (hash?: string) => string | null;
+  verdictWhy: (a: unknown, t: unknown) => string;
   tape: (t: unknown, a: unknown) => string;
   stats: (t: unknown, a: unknown, m: unknown) => string;
   timeline: (d: unknown) => string;
@@ -119,7 +120,7 @@ function loadRenderers(): Renderers {
     "document",
     `return (function(){${script}
       return {tape,stats,timeline,files,commands,findings,firewall,postmortem,
-              cmdCell,relPath,evidenceText,runFromHash};})()`,
+              cmdCell,relPath,evidenceText,runFromHash,verdictWhy};})()`,
   ) as (d: unknown) => Renderers;
   return factory(doc);
 }
@@ -411,5 +412,91 @@ describe("linking to a run", () => {
 
   it("does not treat an unrelated fragment as a run", () => {
     assert.equal(R.runFromHash("#run="), null, "an empty value is not an id");
+  });
+});
+
+describe("the verdict explains itself", () => {
+  const R = loadRenderers();
+
+  const analysisFor = (label: string, labelRule: string) => ({
+    label,
+    labelRule,
+    labelReason: "…",
+    verification: { status: label === "productive" ? "passed" : "not_run" },
+    metrics: {
+      netDiffLines: label === "unchanged" ? 0 : 4,
+      linesAdded: 3,
+      linesRemoved: 1,
+      filesChanged: label === "unchanged" ? 0 : 2,
+      durationS: 95,
+      costUsd: 0.2,
+      costKnown: true,
+    },
+  });
+  const trace = { projectPath: "/x", fileEdits: [], commands: [] };
+
+  it("defines the label, not just this run", () => {
+    const out = R.verdictWhy(analysisFor("unchanged", "no-diff-brief"), trace);
+    assert.match(out, /What "unchanged" means/);
+    assert.match(out, /expected outcome, not a problem/, "says a no-change run is fine");
+  });
+
+  it("names the rule that fired and that first match wins", () => {
+    const out = R.verdictWhy(analysisFor("questionable", "changed-unverified"), trace);
+    assert.match(out, /a diff, and nothing run to check it/);
+    assert.match(out, /first match wins/);
+  });
+
+  it("says what would change the verdict, derived from the rule", () => {
+    // The single most useful sentence the product can say, and it comes out of
+    // the cascade rather than being invented.
+    const out = R.verdictWhy(analysisFor("questionable", "changed-unverified"), trace);
+    assert.match(out, /passing test, build or lint would make this <b>productive<\/b>/);
+  });
+
+  it("offers no false hope on a risk override", () => {
+    const out = R.verdictWhy(analysisFor("risky", "risk-override"), trace);
+    assert.match(out, /Nothing about the diff can clear this/);
+  });
+
+  it("promises nothing when the run is already at the best outcome", () => {
+    const out = R.verdictWhy(analysisFor("productive", "changed-verified"), trace);
+    assert.doesNotMatch(out, /What would change it/);
+  });
+
+  it("shows the values that decided it, and marks unknown cost as unknown", () => {
+    const a = analysisFor("questionable", "changed-unverified") as Record<string, unknown>;
+    (a["metrics"] as Record<string, unknown>)["costKnown"] = false;
+    const out = R.verdictWhy(a, trace);
+    assert.match(out, /verification/);
+    assert.match(out, /unknown/, "an unpriced run must not render as $0.00");
+    assert.doesNotMatch(out, /\$0\.00/);
+  });
+
+  it("has a definition and a next step for every label and rule", () => {
+    // A missing entry would render an empty explanation, which is worse than none.
+    const labels = ["productive", "unchanged", "questionable", "wasteful", "risky"];
+    for (const l of labels) {
+      assert.match(R.verdictWhy(analysisFor(l, "fallback"), trace), /What "/);
+      assert.doesNotMatch(
+        R.verdictWhy(analysisFor(l, "fallback"), trace),
+        /<p><\/p>/,
+        `${l} has no definition`,
+      );
+    }
+    for (const rule of [
+      "risk-override",
+      "no-diff-opaque",
+      "no-diff-spent",
+      "changed-looping-unverified",
+      "changed-verified",
+      "changed-failing",
+      "changed-unverified",
+      "no-diff-brief",
+      "fallback",
+    ]) {
+      const out = R.verdictWhy(analysisFor("questionable", rule), trace);
+      assert.doesNotMatch(out, /Matched on undefined/, `${rule} has no description`);
+    }
   });
 });
