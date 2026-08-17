@@ -66,6 +66,32 @@ button{font:inherit;color:inherit;cursor:pointer}
   letter-spacing:.14em;text-transform:uppercase;
 }
 .brand .sub{color:var(--muted);font-size:11.5px;margin-top:3px}
+.brandtools{display:flex;gap:6px;margin-top:10px}
+.ledelink{
+  background:none;border:0;padding:0;margin-left:8px;color:var(--trace);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  text-decoration:underline;text-underline-offset:2px
+}
+.grouphead td{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--faint);
+  padding-top:12px;border-bottom:1px solid var(--rule-soft)
+}
+.tier{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:1px 5px;border-radius:2px;margin-right:6px
+}
+.t-secret{color:var(--ground);background:var(--warning)}
+.t-config{color:var(--ground);background:var(--caution)}
+.t-outside{color:var(--ground);background:var(--waste)}
+.card.hl{outline:2px solid var(--trace);outline-offset:2px}
+.cmdfull>summary{cursor:pointer;list-style:none}
+.cmdfull>summary::-webkit-details-marker{display:none}
+.cmdfull>summary::after{content:" ⤢";color:var(--faint);font-size:10px}
+.cmdfull pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-all;font-size:11.5px}
+.toollabel{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint);margin-right:2px;flex:none
+}
 .railtools{padding:10px 14px;border-bottom:1px solid var(--rule-soft);
   display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .chip{
@@ -236,7 +262,7 @@ td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
 }
 .tapewrap>summary:hover{color:var(--muted)}
 .tapewrap[open]>summary{border-bottom:1px solid var(--rule-soft)}
-#themetoggle{margin-left:auto}
+#rescan[data-busy="1"]{opacity:.6}
 </style>
 </head>
 <body>
@@ -245,18 +271,24 @@ td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
     <div class="brand">
       <h1>Agent Flight Recorder</h1>
       <div class="sub" id="sub">loading…</div>
+      <!-- Utilities, not filters. They used to sit in the filter row, where they
+           read as two more ways to narrow the list. -->
+      <div class="brandtools">
+        <button type="button" class="chip ghost" id="rescan">rescan</button>
+        <button type="button" class="chip ghost" id="themetoggle" title="switch theme"
+                aria-label="switch theme">☾</button>
+      </div>
     </div>
     <div class="railtools" id="filters">
+      <span class="toollabel">verdict</span>
       <button type="button" class="chip" data-label="" aria-pressed="true">all</button>
       <button type="button" class="chip v-productive" data-label="productive" aria-pressed="false">productive</button>
       <button type="button" class="chip v-questionable" data-label="questionable" aria-pressed="false">questionable</button>
       <button type="button" class="chip v-wasteful" data-label="wasteful" aria-pressed="false">wasteful</button>
       <button type="button" class="chip v-risky" data-label="risky" aria-pressed="false">risky</button>
-      <button type="button" class="chip ghost" id="rescan">rescan</button>
-      <button type="button" class="chip ghost" id="themetoggle" title="switch theme"
-              aria-label="switch theme">☾</button>
     </div>
     <div class="railtools" id="sourcefilters">
+      <span class="toollabel">source</span>
       <button type="button" class="chip" data-source="" aria-pressed="true">all sources</button>
       <button type="button" class="chip ghost" id="showtrivial" aria-pressed="false">show trivial</button>
     </div>
@@ -432,21 +464,33 @@ function renderRun(d){
     ${drift}
     ${lede(a, pm)}
     ${stats(t, a, m)}
-    <details class="tapewrap"><summary>run shape</summary>${tape(t, a)}</details>
+    <details class="tapewrap" open><summary>run shape</summary>${tape(t, a)}</details>
+    <!-- Advice before evidence. Findings is what needs attention and Firewall is
+         what to do about it; Timeline, Files and Commands are the evidence you
+         consult when you doubt those two. They used to come first. -->
     <div class="tabs" id="tabs">
+      ${tabBtn("findings","Findings", a.findings.length)}
+      ${tabBtn("firewall","Firewall", pm.firewall.length)}
       ${tabBtn("postmortem","Postmortem")}
       ${tabBtn("timeline","Timeline", t.events.length)}
       ${tabBtn("files","Files", m.filesChanged)}
       ${tabBtn("commands","Commands", t.commands.length)}
-      ${tabBtn("findings","Findings", a.findings.length)}
-      ${tabBtn("firewall","Firewall", pm.firewall.length)}
     </div>
     <div id="panel"></div>`;
 
   $("#tabs").onclick = e => {
     const b = e.target.closest(".tab"); if (!b) return; showTab(b.dataset.tab, d);
   };
-  showTab("postmortem", d);
+  // Land on the findings unless there are none to show, in which case the
+  // narrative is the most useful thing on the screen.
+  showTab(a.findings.length ? "findings" : "postmortem", d);
+
+  const toStop = $("#tostop");
+  if (toStop) toStop.onclick = () => {
+    showTab("postmortem", d);
+    const card = document.getElementById("stopcard");
+    if (card){ card.scrollIntoView({block:"center"}); card.classList.add("hl"); }
+  };
   drawTape();
 }
 
@@ -575,7 +619,8 @@ function lede(a, pm){
     if (sp.editsAfter) after.push(`${sp.editsAfter} more edit${sp.editsAfter === 1 ? "" : "s"}`);
     if (sp.checksAfter) after.push(`${sp.checksAfter} more check${sp.checksAfter === 1 ? "" : "s"}`);
     return `<div class="lede act"><span class="eyebrow">stop point</span>
-      Could have stopped at ${esc(sp.trigger)}${after.length ? ` — ${esc(after.join(", "))} followed` : ""}.</div>`;
+      Could have stopped at ${esc(sp.trigger)}${after.length ? ` — ${esc(after.join(", "))} followed` : ""}.
+      <button type="button" class="ledelink" id="tostop">why, and how confident</button></div>`;
   }
   const high = a.findings.find(f => f.severity === "high");
   if (high) return `<div class="lede warn"><span class="eyebrow">worth checking</span>${esc(high.title)}</div>`;
@@ -629,12 +674,12 @@ function postmortem(d){
   const pre = (x) => `<pre class="mono">${esc(x)}</pre>`;
   return `
   <div class="card"><h3>Headline</h3><pre class="mono">${esc(pm.headline)}</pre></div>
+  <div class="card" id="stopcard"><h3>Should this have been stopped earlier?</h3>
+     <p style="white-space:pre-wrap">${esc(s.shouldHaveStopped)}</p></div>
   <div class="card"><h3>What happened</h3><p>${esc(s.whatHappened)}</p></div>
   <div class="card"><h3>What changed</h3>${pre(s.whatChanged)}</div>
   <div class="card"><h3>What failed</h3>${pre(s.whatFailed)}</div>
   <div class="card"><h3>Cost and usage</h3>${pre(s.cost)}</div>
-  <div class="card"><h3>Should this have been stopped earlier?</h3>
-     <p style="white-space:pre-wrap">${esc(s.shouldHaveStopped)}</p></div>
   ${pm.confidenceNotes.length ? `<div class="card"><h3>Confidence notes</h3>
      <ul style="margin:0;padding-left:18px">${pm.confidenceNotes.map(n =>
        `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
@@ -716,31 +761,139 @@ function files(d){
   const rows = Object.entries(agg).sort((a,b) => (b[1].add+b[1].del) - (a[1].add+a[1].del));
   if (!rows.length) return `<div class="card"><p>No files were changed in this run. The
     repository is byte-for-byte where it started.</p></div>`;
-  return `<div class="card"><table>
-    <thead><tr><th>Path</th><th>Ops</th><th class="num">Edits</th>
-      <th class="num">+</th><th class="num">−</th></tr></thead>
-    <tbody>${rows.map(([p, a]) => `<tr>
-      <td class="path">${esc(p)}${a.applied < a.n
-        ? ` <span class="unk mono">(${a.n - a.applied} not applied)</span>` : ""}</td>
+
+  // Which paths a finding actually named, taken from the findings' own evidence
+  // rather than re-deriving the classification client-side. This is what turns
+  // the list from information into evidence: it shows which of these files is
+  // the one the verdict is about.
+  const flagged = flaggedPaths(d.analysis);
+
+  // Grouped by directory under the project root. Repeating the same long prefix
+  // on every row hides the part that differs.
+  const groups = new Map();
+  for (const [p, a] of rows){
+    const rel = relPath(p, t.projectPath);
+    const i = rel.lastIndexOf("/");
+    const dir = i === -1 ? "./" : rel.slice(0, i + 1);
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir).push({ p, rel, name: i === -1 ? rel : rel.slice(i + 1), a });
+  }
+
+  const body = [...groups.entries()].map(([dir, entries]) => `
+    <tr class="grouphead"><td colspan="5">${esc(dir)}</td></tr>
+    ${entries.map(({ p, name, a }) => {
+      const tier = flagged.get(p);
+      return `<tr>
+      <td class="path">${tier ? `<span class="tier t-${esc(tier)}">${esc(tier)}</span> ` : ""}${esc(name)}${
+        a.applied < a.n ? ` <span class="unk mono">(${a.n - a.applied} not applied)</span>` : ""}</td>
       <td class="mono" style="font-size:11px">${[...a.ops].join(", ")}</td>
       <td class="num">${a.n}</td><td class="num pass">+${a.add}</td>
-      <td class="num fail">−${a.del}</td></tr>`).join("")}</tbody></table></div>`;
+      <td class="num fail">−${a.del}</td></tr>`;
+    }).join("")}`).join("");
+
+  const root = t.projectPath ? `<p class="mono" style="font-size:11.5px;color:var(--muted);
+    margin:0 0 10px">in ${esc(t.projectPath)}/</p>` : "";
+
+  return `<div class="card">${root}<table>
+    <thead><tr><th>File</th><th>Ops</th><th class="num">Edits</th>
+      <th class="num">+</th><th class="num">−</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+/**
+ * Trim the project root out of an evidence excerpt.
+ *
+ * Findings are now the first thing on screen, which made this the most prominent
+ * noise in the UI: an excerpt listing three changed files repeated the same
+ * 30-character absolute prefix three times. Paths that escape the project keep
+ * their full form — that is the case `risk.outside_project` exists to show.
+ */
+function evidenceText(excerpt, project){
+  const text = (excerpt || "").trim();
+  if (!project) return text.slice(0, 180);
+  const root = (project.endsWith("/") ? project : project + "/");
+  return text.split(root).join("").slice(0, 180);
+}
+
+/** Path relative to the project root; absolute when it escapes, which is the notable case. */
+function relPath(p, project){
+  if (!project) return p;
+  const root = project.endsWith("/") ? project : project + "/";
+  return p.startsWith(root) ? p.slice(root.length) : p;
+}
+
+/** path -> "secret" | "config", from what the risk findings cited as evidence. */
+function flaggedPaths(a){
+  const out = new Map();
+  for (const f of a.findings || []){
+    const tier = f.id.startsWith("risk.secret_file") ? "secret"
+      : f.id === "risk.config_file_write" ? "config"
+      : f.id === "risk.outside_project" ? "outside" : null;
+    if (!tier) continue;
+    for (const e of f.evidence || []){
+      const p = (e.excerpt || "").trim();
+      if (p) out.set(p, tier);
+    }
+  }
+  return out;
 }
 
 function commands(d){
   const cs = d.trace.commands;
   if (!cs.length) return `<div class="card"><p>No shell commands ran. Nothing in this run
     executed the code it changed.</p></div>`;
-  return `<div class="card"><table>
+
+  // Commands a risk finding named, so the dangerous ones are visible without
+  // reading every row. Taken from the findings' evidence, not re-classified here.
+  const risky = new Set();
+  for (const f of d.analysis.findings || []){
+    if (!f.id.startsWith("risk.destructive")) continue;
+    for (const e of f.evidence || []) if (e.excerpt) risky.add(e.excerpt.trim());
+  }
+
+  // What needs attention first: denied, then failed, then risky, then the rest.
+  // Chronological order is available in the Timeline tab; here it buries the
+  // three rows out of forty that matter.
+  const rank = c => c.denied ? 0 : c.ok === false ? 1 : risky.has(c.command.trim()) ? 2 : 3;
+  const sorted = [...cs].sort((a,b) => rank(a) - rank(b) || a.eventIdx - b.eventIdx);
+  const noteworthy = sorted.filter(c => rank(c) < 3).length;
+
+  const head = noteworthy
+    ? `<p class="mono" style="font-size:11.5px;color:var(--muted);margin:0 0 10px">
+        ${noteworthy} of ${cs.length} need attention — shown first</p>`
+    : "";
+
+  return `<div class="card">${head}<table>
     <thead><tr><th>Command</th><th>Kind</th><th>Result</th><th class="num">Event</th></tr></thead>
-    <tbody>${cs.map(c => `<tr>
-      <td class="path">${esc(c.command)}${c.denied
-        ? ` <span class="unk mono">(denied)</span>` : ""}</td>
+    <tbody>${sorted.map(c => {
+      const marks = [
+        c.denied ? `<span class="tier t-outside">denied</span>` : "",
+        risky.has(c.command.trim()) ? `<span class="tier t-secret">destructive</span>` : "",
+      ].join("");
+      return `<tr>
+      <td class="path">${marks}${cmdCell(c.command)}</td>
       <td class="mono" style="font-size:11px">${esc(c.category)}</td>
       <td class="mono ${c.ok === false ? "fail" : c.ok ? "pass" : "unk"}">
         ${c.ok === false ? "failed" : c.ok ? "ok" : "unknown"}
         ${c.exitCode != null ? `(${c.exitCode})` : ""}</td>
-      <td class="num">${c.eventIdx}</td></tr>`).join("")}</tbody></table></div>`;
+      <td class="num">${c.eventIdx}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+/**
+ * Middle-truncate a command, with the full text one click away.
+ *
+ * Never tail-truncate: a long command carries meaning at both ends — the binary
+ * at the front, and the redirect, target or `--force` at the back. Cutting the
+ * tail hides exactly the half that tells you whether it was dangerous.
+ */
+const CMD_MAX = 120;
+function cmdCell(cmd){
+  const one = cmd.replace(/\s+/g, " ").trim();
+  if (one.length <= CMD_MAX) return esc(one);
+  const keep = Math.floor((CMD_MAX - 12) / 2);
+  const short = `${one.slice(0, keep)} … ${one.slice(-keep)}`;
+  return `<details class="cmdfull"><summary>${esc(short)}</summary><pre>${esc(cmd)}</pre></details>`;
 }
 
 function findings(d){
@@ -753,7 +906,7 @@ function findings(d){
       <p>${esc(f.detail)}</p>
       ${f.evidence.length ? `<ul class="evlist">${f.evidence.map(e =>
         `<li><button type="button" data-jump="${e.eventIdx}">event ${e.eventIdx}</button>
-          ${e.label ? esc(e.label) + " — " : ""}${esc((e.excerpt||"").slice(0,180))}</li>`
+          ${e.label ? esc(e.label) + " — " : ""}${esc(evidenceText(e.excerpt, d.trace.projectPath))}</li>`
       ).join("")}</ul>` : ""}
     </div>`).join("")}</div>`;
 }

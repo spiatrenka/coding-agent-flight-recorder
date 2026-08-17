@@ -25,6 +25,7 @@ import {
   fixtureWideDiff,
 } from "../src/demo/fixtures.js";
 import { type Finding, netDiffLines, type Run } from "../src/model.js";
+import { generate } from "../src/postmortem.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 
 let root: string;
@@ -220,5 +221,119 @@ describe("unbacked claim evidence", () => {
     const excerpt = find(findings, "verify.unbacked_claim").evidence[0]?.excerpt ?? "";
     assert.ok(!excerpt.startsWith("…"), "no ellipsis when nothing was trimmed");
     assert.match(excerpt, /^All tests pass/);
+  });
+});
+
+// --------------------------------------------------------------------------
+
+describe("stop point prose", () => {
+  /** Edits first, then a repeated failure, then nothing but checks. */
+  function stopThenOnlyChecks(): Builder {
+    const b = new Builder({ start: new Date("2026-08-12T22:00:00Z") });
+    b.user("The settlement test is failing, fix it.");
+    b.edit("/Users/dev/code/payments-api/src/settle.ts", "round(x)", "floor(x)");
+    b.bash("npm test -- settle", { stdout: "1 failing", ok: false });
+    b.bash("npm test -- settle", { stdout: "1 failing", ok: false });
+    // Tail: verification only, no further edits.
+    b.bash("npm test -- settle", { stdout: "12 passing", ok: true });
+    b.bash("npm run build", { stdout: "Compiled successfully", ok: true });
+    b.bash("npm run lint", { stdout: "0 problems", ok: true });
+    b.say("Green. The rounding was the cause.");
+    b.say("Confirmed across the build and the linter too.");
+    return b;
+  }
+
+  it("does not call a verification tail pure overhead", () => {
+    const { run } = load(stopThenOnlyChecks());
+    const a = analyze(run);
+    assert.ok(a.stopPoint, "premise: this fixture produces a stop point");
+    assert.equal(a.stopPoint.editsAfter, 0, "premise: no edits followed");
+    assert.ok(a.stopPoint.checksAfter > 0, "premise: checks did follow");
+
+    const text = generate(run, a).sections.shouldHaveStopped;
+    assert.doesNotMatch(text, /pure overhead/, "a verification tail is not overhead");
+    assert.match(text, /verification, not waste/);
+  });
+
+  it("states its confidence, and lowers it when the tail was verification", () => {
+    const { run } = load(stopThenOnlyChecks());
+    const text = generate(run, analyze(run)).sections.shouldHaveStopped;
+    assert.match(text, /Confidence: low/);
+  });
+
+  it("still calls a genuinely empty tail overhead", () => {
+    const { run } = load(fixtureStall());
+    const a = analyze(run);
+    if (!a.stopPoint) return; // fixture only needs to be meaningful when it triggers
+    if (a.stopPoint.editsAfter === 0 && a.stopPoint.checksAfter === 0) {
+      assert.match(generate(run, a).sections.shouldHaveStopped, /pure overhead/);
+    }
+  });
+
+  it("never puts a raw ISO timestamp in prose", () => {
+    // The section used to interpolate sp.ts directly, which is unreadable in the
+    // dashboard and in `flightrec report` alike.
+    for (const b of [stopThenOnlyChecks(), fixtureRevert(), fixtureStall()]) {
+      const run = load(b).run;
+      const text = generate(run, analyze(run)).sections.shouldHaveStopped;
+      assert.doesNotMatch(text, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, "no ISO timestamps in prose");
+    }
+  });
+
+  it("formats the stop time identically regardless of machine timezone", () => {
+    // The markdown is stored, so a locale- or TZ-dependent rendering would make
+    // the same run differ between machines. Determinism is the product.
+    const { run } = load(stopThenOnlyChecks());
+    const a = analyze(run);
+    if (!a.stopPoint?.ts) return;
+    const text = generate(run, a).sections.shouldHaveStopped;
+    assert.match(text, /\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC/);
+  });
+});
+
+// --------------------------------------------------------------------------
+
+describe("what changed, grouped", () => {
+  function multiDir(): Builder {
+    const b = new Builder({ start: new Date("2026-08-12T23:00:00Z") });
+    b.user("Wire pagination through the API.");
+    b.edit("/Users/dev/code/payments-api/src/api/list.ts", "limit", "limit, cursor");
+    b.edit("/Users/dev/code/payments-api/src/api/schema.ts", "Page", "Page, Cursor");
+    b.edit("/Users/dev/code/payments-api/src/db/query.ts", "SELECT", "SELECT /* paged */");
+    b.say("Wired.");
+    return b;
+  }
+
+  it("states the project root once instead of on every line", () => {
+    const { run } = load(multiDir());
+    const text = generate(run, analyze(run)).sections.whatChanged;
+    assert.equal(
+      text.split("/Users/dev/code/payments-api").length - 1,
+      1,
+      "the absolute prefix appears exactly once",
+    );
+    assert.match(text, /in \/Users\/dev\/code\/payments-api\//);
+  });
+
+  it("groups files under their directory", () => {
+    const { run } = load(multiDir());
+    const text = generate(run, analyze(run)).sections.whatChanged;
+    assert.match(text, /src\/api\//);
+    assert.match(text, /src\/db\//);
+    // Names appear without their directory repeated.
+    assert.match(text, /^\s+list\.ts\s+\(\+/m);
+    assert.match(text, /^\s+query\.ts\s+\(\+/m);
+  });
+
+  it("aligns the counts within a group", () => {
+    const { run } = load(multiDir());
+    const text = generate(run, analyze(run)).sections.whatChanged;
+    const cols = text
+      .split("\n")
+      .filter((l) => /^\s{4}\S+\.ts\s+\(\+/.test(l))
+      .map((l) => l.indexOf("(+"));
+    assert.ok(cols.length >= 2);
+    // Files in the same group start their stats at the same column.
+    assert.equal(new Set(cols.slice(0, 2)).size, 1, "aligned within src/api/");
   });
 });

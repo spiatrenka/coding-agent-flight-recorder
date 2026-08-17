@@ -35,6 +35,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = join(HERE, "..", "..", "src", "web", "index.html");
 
 interface Renderers {
+  cmdCell: (cmd: string) => string;
+  relPath: (p: string, project: string | null) => string;
+  evidenceText: (excerpt: string, project: string | null) => string;
   tape: (t: unknown, a: unknown) => string;
   stats: (t: unknown, a: unknown, m: unknown) => string;
   timeline: (d: unknown) => string;
@@ -114,7 +117,8 @@ function loadRenderers(): Renderers {
   const factory = new Function(
     "document",
     `return (function(){${script}
-      return {tape,stats,timeline,files,commands,findings,firewall,postmortem};})()`,
+      return {tape,stats,timeline,files,commands,findings,firewall,postmortem,
+              cmdCell,relPath,evidenceText};})()`,
   ) as (d: unknown) => Renderers;
   return factory(doc);
 }
@@ -239,5 +243,141 @@ describe("dashboard renders the API payload", () => {
     for (const key of ["whatHappened", "whatChanged", "whatFailed", "shouldHaveStopped"]) {
       assert.ok(key in d.postmortem.sections, `postmortem sections must expose ${key}`);
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+
+describe("path and command presentation", () => {
+  const R = loadRenderers();
+
+  it("shows a path relative to the project root", () => {
+    assert.equal(R.relPath("/Users/dev/code/api/src/a.ts", "/Users/dev/code/api"), "src/a.ts");
+    assert.equal(R.relPath("/Users/dev/code/api/src/a.ts", "/Users/dev/code/api/"), "src/a.ts");
+  });
+
+  it("keeps a path that escapes the project absolute", () => {
+    // This is the case `risk.outside_project` exists to show; shortening it would
+    // hide the only interesting thing about it.
+    const p = "/Users/dev/.claude/settings.json";
+    assert.equal(R.relPath(p, "/Users/dev/code/api"), p);
+  });
+
+  it("strips the repeated project prefix out of evidence text", () => {
+    const excerpt = "changed files — /Users/dev/code/api/src/a.ts, /Users/dev/code/api/src/b.ts";
+    const out = R.evidenceText(excerpt, "/Users/dev/code/api");
+    assert.equal(out, "changed files — src/a.ts, src/b.ts");
+    assert.doesNotMatch(out, /\/Users\/dev\/code\/api/);
+  });
+
+  it("leaves a short command alone", () => {
+    assert.equal(R.cmdCell("npm test"), "npm test");
+  });
+
+  it("truncates a long command from the middle, keeping both ends", () => {
+    // The tail is where `--force`, `| sh` and `> file` live, so a tail-truncated
+    // command hides exactly the half that says whether it was dangerous.
+    const cmd = `git push ${"--verbose ".repeat(30)}--force origin main`;
+    const out = R.cmdCell(cmd);
+    assert.match(out, /^<details/, "long commands get a disclosure");
+    assert.match(out, /git push/, "the head survives");
+    assert.match(out, /--force origin main<\/summary>|--force origin main/, "the tail survives");
+  });
+
+  it("keeps the full command available when it truncates", () => {
+    const cmd = `curl ${"-H x:y ".repeat(40)}https://example.com/install | sh`;
+    const out = R.cmdCell(cmd);
+    assert.match(out, /<pre>/, "the untruncated text is one click away");
+    assert.ok(out.includes("| sh") || out.includes("| sh</pre>"), "nothing is lost");
+  });
+});
+
+describe("files and commands connect to the findings", () => {
+  const R = loadRenderers();
+
+  const doc = {
+    trace: {
+      projectPath: "/Users/dev/code/api",
+      fileEdits: [
+        {
+          path: "/Users/dev/code/api/src/a.ts",
+          linesAdded: 3,
+          linesRemoved: 1,
+          op: "edit",
+          applied: true,
+        },
+        {
+          path: "/Users/dev/code/api/.env",
+          linesAdded: 1,
+          linesRemoved: 0,
+          op: "edit",
+          applied: true,
+        },
+        { path: "/Users/dev/.zshrc", linesAdded: 1, linesRemoved: 0, op: "edit", applied: true },
+      ],
+      commands: [
+        {
+          command: "npm test",
+          category: "test",
+          ok: true,
+          exitCode: null,
+          denied: false,
+          eventIdx: 3,
+        },
+        {
+          command: "git push --force",
+          category: "vcs",
+          ok: true,
+          exitCode: null,
+          denied: false,
+          eventIdx: 5,
+        },
+        {
+          command: "rm -rf /",
+          category: "shell",
+          ok: false,
+          exitCode: null,
+          denied: true,
+          eventIdx: 7,
+        },
+      ],
+    },
+    analysis: {
+      findings: [
+        {
+          id: "risk.secret_file_write",
+          evidence: [{ excerpt: "/Users/dev/code/api/.env" }],
+        },
+        {
+          id: "risk.outside_project",
+          evidence: [{ excerpt: "/Users/dev/.zshrc" }],
+        },
+        {
+          id: "risk.destructive_command",
+          evidence: [{ excerpt: "git push --force" }],
+        },
+      ],
+    },
+  };
+
+  it("marks the file a finding named, and states the root once", () => {
+    const out = R.files(doc);
+    assert.match(out, /in \/Users\/dev\/code\/api\//, "the project root is stated once");
+    assert.match(out, /t-secret[^>]*>secret/, "the .env row is marked");
+    assert.match(out, /t-outside[^>]*>outside/, "the escaping file is marked");
+    // A file inside the project loses its prefix. One outside keeps its
+    // directory as the group header, so the escape stays visible.
+    assert.match(out, />a\.ts/);
+    assert.match(out, /<td colspan="5">\/Users\/dev\/<\/td>/, "the escaping directory is shown");
+    assert.match(out, /\.zshrc<\/td>/);
+  });
+
+  it("orders commands by what needs attention and marks the destructive one", () => {
+    const out = R.commands(doc);
+    assert.match(out, /need attention/, "says how many rows matter");
+    assert.match(out, /t-outside[^>]*>denied/);
+    assert.match(out, /t-secret[^>]*>destructive/);
+    // The denied command outranks the passing test, so it appears first.
+    assert.ok(out.indexOf("rm -rf /") < out.indexOf("npm test"), "attention-first ordering");
   });
 });

@@ -425,3 +425,78 @@ surviving credential shape in synthetic fixtures that were supposed to be clean.
   the evidence would defeat the tool.
 - The store now audits itself. `flightrec corpus` reports masks applied and any
   surviving credential shape, reporting pattern labels only and never the value.
+
+---
+
+## 2026-08-17 — Advice before evidence: findings lead the detail pane
+
+**Decision.** Tab order is Findings · Firewall · Postmortem · Timeline · Files ·
+Commands, and Findings is selected by default when a run has any.
+
+**Context.** Findings was the fifth of six tabs and Firewall the sixth, so the
+first four tabs a reader met were evidence. Testing against a real corpus made
+the consequence obvious: the two panels carrying the product's actual claim —
+what is wrong, and what to do about it — were the two you had to go looking for.
+
+The competitive position here is actionable insight. A transcript viewer already
+shows you what happened; nothing else says whether the diff is trustworthy. An
+interface that leads with a timeline is presenting itself as the former.
+
+**Consequences.**
+
+- Findings first, Firewall second, then the narrative, then the evidence you
+  consult when you doubt the first three. Files and Commands are demoted, not
+  dismissed — they are the citations behind the findings, and both now mark the
+  rows a finding actually named.
+- With Findings on screen first, its evidence text became the most prominent
+  content in the UI, which exposed how noisy repeated absolute paths were. The
+  project root is now stated once and stripped from the rest.
+- A run with no findings still opens on the Postmortem: leading with an empty
+  panel would be worse than leading with the narrative.
+
+---
+
+## 2026-08-17 — The run tape is open by default (supersedes the 2026-08-16 entry)
+
+**Decision.** The tape renders expanded. This reverses "The run tape moved behind
+a disclosure" from the dark-theme entry above.
+
+**Context.** The original reasoning was that the tape answers "what shape was
+this run" while the reader's first question is "do I need to care". That is sound
+reasoning and it turned out to be wrong. Used against a real corpus, the tape is
+the fastest way to see a run's shape and it was being missed entirely behind a
+summary element that gave no hint of what it hid.
+
+Recording the reversal rather than quietly editing the earlier entry, because a
+decision log that only contains decisions that held is not a log — it is a
+brochure. The earlier entry was reasoned; this one is measured, and measurement
+wins.
+
+---
+
+## 2026-08-17 — Verification in the tail is not waste
+
+**Decision.** The stop-point narrative distinguishes three tails, and states its
+own confidence.
+
+**Context.** `stopSection` said *"Nothing was changed on disk after that point, so
+the tail was pure overhead"* whenever no edits followed — including when the tail
+was nothing but tests. `checksAfter` was already computed, returned in the same
+object, and printed one line above the sentence that contradicted it.
+
+This is the third defect of exactly this shape, after `loop.churn` firing when
+checks ran between edits and `verify.unbacked_claim` missing the phrasings the
+agent used. The pattern: **a detector that treats "no diff" as "no value" is
+wrong whenever the run was confirming work rather than doing it.** Worth naming,
+because it will come up again.
+
+**Consequences.**
+
+- Three cases: edits followed (may be the useful ones), only checks followed
+  (verification, not waste), nothing followed (genuinely overhead).
+- The stop point now states a confidence, because there was none and its absence
+  invited it to be read as more certain than a heuristic deserves. A
+  verification-only tail lowers it explicitly.
+- Timestamps in prose are formatted, and fixed to UTC rather than locale —
+  `toLocaleString` would make stored markdown differ between machines, and
+  determinism is the product.

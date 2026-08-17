@@ -12,7 +12,7 @@
  */
 
 import { describeCost, PRICES_UPDATED, priceTableSourceName } from "./analyze/cost.js";
-import type { Analysis } from "./analyze/index.js";
+import type { Analysis, StopPoint } from "./analyze/index.js";
 import {
   filesTouched,
   type Label,
@@ -75,6 +75,42 @@ function dur(seconds: number | null): string {
 
 function plural(n: number, one: string, many?: string): string {
   return `${n} ${n === 1 ? one : (many ?? `${one}s`)}`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Shorten a command for prose, from the middle.
+ *
+ * Never from the tail: a long command carries meaning at both ends — the binary
+ * at the front, and the redirect, target or `--force` at the back. Truncating
+ * the tail removes precisely the half that says whether it was dangerous. The
+ * full command is always still in the Commands view and the trace.
+ */
+function shortCmd(cmd: string, max = 120): string {
+  const one = cmd.replace(/\s+/g, " ").trim();
+  if (one.length <= max) return one;
+  const keep = Math.floor((max - 5) / 2);
+  return `${one.slice(0, keep)} … ${one.slice(-keep)}`;
+}
+
+/**
+ * A readable timestamp that is still byte-identical everywhere.
+ *
+ * Deliberately not `toLocaleString`: this string is stored in the postmortem
+ * markdown, and a locale- or timezone-dependent rendering would make the same
+ * run produce different output on different machines. Determinism is the
+ * product, so the format is fixed and UTC is stated rather than assumed.
+ */
+function readableTs(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+  );
 }
 
 function confidenceOf(run: Run, a: Analysis): { confidence: Confidence; notes: string[] } {
@@ -159,6 +195,18 @@ function whatHappened(run: Run, a: Analysis): string {
   return parts.join(" ");
 }
 
+/**
+ * A path relative to the project root, or the absolute path when it escapes.
+ *
+ * Escaping is deliberately left visible: a file outside the project is exactly
+ * what `risk.outside_project` flags, so shortening it would hide the notable case.
+ */
+function relToProject(path: string, project: string | null): string {
+  if (!project) return path;
+  const root = project.endsWith("/") ? project : `${project}/`;
+  return path.startsWith(root) ? path.slice(root.length) : path;
+}
+
 function whatChanged(run: Run, a: Analysis): string {
   const files = filesTouched(run);
   const opaqueWrites = unrecordedWrites(run);
@@ -179,12 +227,32 @@ function whatChanged(run: Run, a: Analysis): string {
     return `${head}${shellNote}`;
   }
   const head = `${plural(files.length, "file")} changed, +${a.metrics.linesAdded}/−${a.metrics.linesRemoved} lines.`;
-  const perFile = files.slice(0, 20).map((p) => {
+  // Grouped by directory, with the project root stated once. Repeating a long
+  // absolute path on every line is noise that hides the part that differs — and
+  // the part that differs is the only reason to read the list.
+  const shown = files.slice(0, 20);
+  const groups = new Map<string, Array<{ name: string; stat: string }>>();
+  for (const p of shown) {
+    const rel = relToProject(p, run.projectPath);
+    const slash = rel.lastIndexOf("/");
+    const dir = slash === -1 ? "." : rel.slice(0, slash);
+    const name = slash === -1 ? rel : rel.slice(slash + 1);
     const edits = run.fileEdits.filter((e) => e.path === p && e.applied);
     const add = edits.reduce((n, e) => n + (e.linesAdded ?? 0), 0);
     const del = edits.reduce((n, e) => n + (e.linesRemoved ?? 0), 0);
-    return `  ${p}  (+${add}/−${del}, ${plural(edits.length, "edit")})`;
-  });
+    const stat = `(+${add}/−${del}, ${plural(edits.length, "edit")})`;
+    groups.set(dir, [...(groups.get(dir) ?? []), { name, stat }]);
+  }
+
+  const perFile: string[] = [];
+  if (run.projectPath) perFile.push(`  in ${run.projectPath}/`);
+  for (const [dir, entries] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    perFile.push(`  ${dir === "." ? "./" : `${dir}/`}`);
+    // Align the counts within a group: this is a monospace block, so ragged
+    // columns are the difference between scanning it and reading it.
+    const w = Math.max(...entries.map((e) => e.name.length));
+    for (const e of entries) perFile.push(`    ${e.name.padEnd(w)}  ${e.stat}`);
+  }
   if (files.length > 20) perFile.push(`  … and ${files.length - 20} more`);
 
   const rejected = run.fileEdits.filter((e) => !e.applied);
@@ -205,7 +273,7 @@ function whatFailed(run: Run, a: Analysis): string {
     );
   } else {
     lines.push(`Verification: ${v.status} — ${v.summary}.`);
-    if (v.lastCheck) lines.push(`Last check run: \`${v.lastCheck.command}\`.`);
+    if (v.lastCheck) lines.push(`Last check run: \`${shortCmd(v.lastCheck.command)}\`.`);
     // Neither source records exit codes, so say where the verdict came from.
     if (v.frameworks.length) {
       lines.push(
@@ -284,19 +352,54 @@ function stopSection(a: Analysis): string {
       : "No single point stands out. The run's problems are distributed across it rather than " +
           "starting at one identifiable moment.";
   }
-  const when = sp.ts ? ` at ${sp.ts}` : "";
+  const stamp = readableTs(sp.ts);
+  const when = stamp ? ` at ${stamp}` : "";
   const tail = [plural(sp.eventsAfter, "event")];
   if (sp.minutesAfter !== null) tail.push(`${sp.minutesAfter} minutes`);
   if (sp.editsAfter) tail.push(plural(sp.editsAfter, "further file edit"));
   if (sp.checksAfter) tail.push(plural(sp.checksAfter, "further check"));
 
-  const verdict = sp.editsAfter
-    ? "Those later edits may well be the useful ones — read them before discarding the tail."
-    : "Nothing was changed on disk after that point, so the tail was pure overhead.";
+  // Three cases, not two. The old text said "pure overhead" whenever no edits
+  // followed — including when the tail was nothing but verification, which is
+  // the opposite of waste. The number contradicting it was already in `sp`.
+  let verdict: string;
+  if (sp.editsAfter) {
+    verdict =
+      "Those later edits may well be the useful ones — read them before discarding the tail.";
+  } else if (sp.checksAfter) {
+    verdict =
+      `Nothing changed on disk after that point, but ${plural(sp.checksAfter, "check")} ran. ` +
+      `That is verification, not waste: the run was confirming work it had already done.`;
+  } else {
+    verdict = "Nothing was changed on disk and nothing was checked, so the tail was pure overhead.";
+  }
 
   return (
     `Yes — around event ${sp.eventIdx}${when}, at ${sp.trigger}.\n` +
-    `After that point the run continued for ${tail.join(", ")}.\n${verdict}`
+    `After that point the run continued for ${tail.join(", ")}.\n${verdict}\n` +
+    `${stopConfidence(sp)}`
+  );
+}
+
+/**
+ * How much weight the stop point deserves.
+ *
+ * There was no confidence signal on it at all, which invited it to be read as
+ * more certain than it is. The rule behind it is a heuristic — the earliest
+ * high-severity loop, destructive or secrets finding — so say what it is rather
+ * than leaving the reader to assume.
+ */
+function stopConfidence(sp: StopPoint): string {
+  const long = (sp.minutesAfter ?? 0) >= 5 || sp.eventsAfter >= 20;
+  if (sp.editsAfter === 0 && sp.checksAfter === 0 && long) {
+    return "Confidence: high — a long tail that produced nothing.";
+  }
+  if (sp.checksAfter > 0 && sp.editsAfter === 0) {
+    return "Confidence: low — the tail was verification, so stopping earlier would have skipped it.";
+  }
+  return (
+    "Confidence: medium — this is the earliest high-severity finding, not a judgement about " +
+    "whether the work after it was worthwhile."
   );
 }
 
@@ -406,14 +509,17 @@ export function renderMarkdown(run: Run, a: Analysis, pm: Postmortem): string {
   L.push(`| Agent | ${run.source} ${run.agentVersion ?? ""} |`);
   L.push(`| Confidence | ${pm.confidence} |`, "");
 
+  // Actionable before descriptive, matching the dashboard: the risk flags and
+  // the stop point are the two things worth acting on, and they were the last
+  // two sections a reader reached.
   const sections: Array<[keyof Postmortem["sections"], string, boolean]> = [
     ["goal", "Goal", false],
+    ["risks", "Risk flags", true],
+    ["shouldHaveStopped", "Should this have been stopped earlier?", false],
     ["whatHappened", "What happened", false],
     ["whatChanged", "What changed", true],
     ["whatFailed", "What failed", true],
     ["cost", "Cost and usage", true],
-    ["risks", "Risk flags", true],
-    ["shouldHaveStopped", "Should this have been stopped earlier?", false],
   ];
   for (const [key, title, fenced] of sections) {
     L.push(`## ${title}`, "");

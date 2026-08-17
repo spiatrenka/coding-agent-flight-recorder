@@ -12,6 +12,37 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+### Changed
+
+- **The detail pane leads with advice.** Tab order is now Findings · Firewall ·
+  Postmortem · Timeline · Files · Commands, opening on Findings. The two panels
+  carrying the product's claim were previously fifth and sixth.
+- **The run tape is expanded by default**, reversing an earlier decision — see
+  `docs/DECISIONS.md`.
+- Paths are grouped and shown relative to the project root in `what changed`,
+  the Files tab and finding evidence. Files that escape the project keep their
+  absolute form, since that is the notable case.
+- Files and Commands mark the rows a finding actually named — sensitive and
+  config files, denied and destructive commands — so the evidence connects to the
+  verdict instead of just listing rows.
+- Commands are ordered by what needs attention (denied, failed, destructive)
+  rather than chronologically; the Timeline tab remains chronological.
+- Long commands are truncated from the *middle*, never the tail, with the full
+  text one click away. The tail is where `--force`, `| sh` and `> file` live.
+- `rescan` and the theme toggle moved out of the verdict filter row, which now
+  carries explicit `verdict` and `source` labels.
+
+### Fixed
+
+- **A verification tail is no longer called waste.** The stop-point narrative
+  claimed "nothing changed on disk, so the tail was pure overhead" even when the
+  tail was entirely tests — while printing the check count one line above.
+- The stop point now states a confidence level; previously it offered none, which
+  invited a heuristic to be read as a certainty.
+- Stop-point timestamps are formatted rather than raw ISO strings, in the
+  dashboard and in `flightrec report` alike. Fixed to UTC, because a
+  locale-dependent rendering would make stored markdown differ between machines.
+
 ### Added
 
 - `flightrec corpus` — audits a whole store: verdict distribution, per-detector
