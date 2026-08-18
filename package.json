@@ -1,6 +1,6 @@
 {
   "name": "coding-agent-flight-recorder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local post-hoc forensics and postmortems for coding-agent runs",
   "license": "MIT",
   "author": "Sergey Petrenko <siarhei.piatrenka@gmail.com>",

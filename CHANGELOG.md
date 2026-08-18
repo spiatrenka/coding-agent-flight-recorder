@@ -12,6 +12,8 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-18
+
 ### Changed
 
 - **Elapsed time no longer decides a verdict.** Analyzer **1.2.0**. Rule 3 tested
@@ -235,5 +237,6 @@ passing throughout. `docs/DECISIONS.md` records the pattern.
   484 real runs they fire on 3 and 42 runs respectively. Earlier notes calling
   them unvalidated were written against a 25-transcript sample.
 
-[Unreleased]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/releases/tag/v0.1.0
