@@ -49,17 +49,21 @@ export function seedDemo(store: Store, opts: { root?: string } = {}): DemoResult
     buildOpenCodeDemo(ocStorage);
     process.env["OPENCODE_STORAGE_DIR"] = ocStorage;
 
-    let runs = 0;
+    const ids: string[] = [];
     for (const src of [new ClaudeCodeSource(), new OpenCodeSource()]) {
       for (const item of src.discover()) {
         for (const run of src.load(item.path)) {
           const a = analyze(run);
           store.upsert(run, a, generate(run, a));
-          runs++;
+          ids.push(run.runId);
         }
       }
     }
-    return { runs, root };
+    // Mark them, rather than leaving them to be recognised by their temp-dir source
+    // path. `demo` seeds into whatever store is configured — usually the real one —
+    // and these runs then sit in `flightrec corpus` output alongside real ones.
+    store.markSynthetic(ids);
+    return { runs: ids.length, root };
   } finally {
     restore("CLAUDE_CONFIG_DIR", priorClaude);
     restore("OPENCODE_STORAGE_DIR", priorOpenCode);

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS runs (
     n_findings INTEGER DEFAULT 0,
     n_events INTEGER DEFAULT 0,
     trivial INTEGER DEFAULT 0,
+    synthetic INTEGER DEFAULT 0,
     source_file TEXT,
     content_hash TEXT,
     ingested_at TEXT,
@@ -108,6 +109,7 @@ export interface RunSummary {
   n_findings: number;
   n_events: number;
   trivial: number;
+  synthetic: number;
 }
 
 export interface StoredRun extends RunSummary {
@@ -154,6 +156,11 @@ export class Store {
       // Added so staleness is queryable: the label vocabulary changed, and a store
       // graded by an older analyzer keeps its old labels until a forced re-ingest.
       ["analyzer_version", "TEXT"],
+      // `flightrec demo` seeds synthetic runs into whatever store is configured,
+      // which is usually the real one. Without a marker they are only
+      // *incidentally* identifiable by their temp-dir source path, and they skew
+      // `flightrec corpus` — the command whose whole job is measuring real behaviour.
+      ["synthetic", "INTEGER DEFAULT 0"],
     ];
     for (const [name, decl] of added) {
       if (!cols.has(name)) this.db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${decl}`);
@@ -232,6 +239,87 @@ export class Store {
     }
   }
 
+  /**
+   * Runs matching a deletion request, with enough detail to show the user what
+   * they are about to lose. Every filter given must match — they narrow, not widen.
+   *
+   * Separate from `listRuns` because that one caps at 200 for display, and a
+   * deletion that silently stopped at 200 would be the worst possible bug here.
+   */
+  findForDeletion(opts: {
+    ids?: string[];
+    project?: string | null;
+    before?: string | null;
+    synthetic?: boolean;
+  }): Array<{
+    run_id: string;
+    started_at: string | null;
+    label: Label;
+    project_path: string | null;
+    goal: string | null;
+  }> {
+    const where: string[] = [];
+    const args: Array<string | number> = [];
+    if (opts.ids?.length) {
+      where.push(`run_id IN (${opts.ids.map(() => "?").join(",")})`);
+      args.push(...opts.ids);
+    }
+    if (opts.project) {
+      where.push("project_path = ?");
+      args.push(opts.project);
+    }
+    if (opts.before) {
+      where.push("COALESCE(started_at,'') < ?");
+      args.push(opts.before);
+    }
+    if (opts.synthetic) where.push("COALESCE(synthetic,0) = 1");
+    if (!where.length) return [];
+
+    return this.db
+      .prepare(
+        `SELECT run_id, started_at, label, project_path, goal FROM runs
+          WHERE ${where.join(" AND ")} ORDER BY COALESCE(started_at,'') ASC`,
+      )
+      .all(...args) as unknown as Array<{
+      run_id: string;
+      started_at: string | null;
+      label: Label;
+      project_path: string | null;
+      goal: string | null;
+    }>;
+  }
+
+  /**
+   * Delete runs and their findings. Returns how many rows went from `runs`.
+   *
+   * `ingest_log` is deliberately left alone. Its rows are what stop `ingest` from
+   * re-reading a file, so keeping them means a deleted run stays deleted on the
+   * next plain `ingest` — which is what someone removing sensitive data expects.
+   * `ingest --force` re-reads regardless and will bring the run back if the
+   * transcript still exists; deleting the transcript is the only way to prevent
+   * that, and this tool never touches transcripts.
+   */
+  deleteRuns(ids: string[]): number {
+    if (!ids.length) return 0;
+    const holes = ids.map(() => "?").join(",");
+    this.db.prepare(`DELETE FROM findings WHERE run_id IN (${holes})`).run(...ids);
+    const res = this.db.prepare(`DELETE FROM runs WHERE run_id IN (${holes})`).run(...ids);
+    return Number(res.changes);
+  }
+
+  /**
+   * Flag runs as synthetic. Set by `seedDemo` after it stores them.
+   *
+   * Not a parameter on `upsert`: a re-ingest of real data must never be able to
+   * clear or set this by accident, and `upsert` is on the hot path for both.
+   */
+  markSynthetic(ids: string[]): void {
+    if (!ids.length) return;
+    this.db
+      .prepare(`UPDATE runs SET synthetic=1 WHERE run_id IN (${ids.map(() => "?").join(",")})`)
+      .run(...ids);
+  }
+
   noteIngest(path: string, mtime: number, size: number, runsFound: number): void {
     this.db
       .prepare("INSERT OR REPLACE INTO ingest_log VALUES (?,?,?,?,?)")
@@ -252,11 +340,14 @@ export class Store {
    *
    * A file that produced no runs has nothing to regrade, so it stays skipped.
    */
-  isUnchanged(path: string, mtime: number, size: number, analyzerVersion: string): boolean {
+  isUnchanged(path: string, mtime: number, size: number, analyzerVersion: string | null): boolean {
     const row = this.db.prepare("SELECT mtime, size FROM ingest_log WHERE path=?").get(path) as
       | { mtime: number; size: number }
       | undefined;
     if (!row || Math.abs(row.mtime - mtime) >= 0.001 || row.size !== size) return false;
+    // `null` asks only "is the file itself unchanged", which is how a caller tells
+    // a grading-driven re-read apart from a genuine content change.
+    if (analyzerVersion === null) return true;
 
     const stale = this.db
       .prepare(
@@ -275,14 +366,21 @@ export class Store {
       label?: string | null;
       source?: string | null;
       includeTrivial?: boolean;
+      /**
+       * Synthetic runs are included by default, because `demo` exists to put them
+       * in front of you. `corpus` is the one caller that opts out: its job is
+       * measuring real behaviour, and fixtures in that number make it a lie.
+       */
+      includeSynthetic?: boolean;
     } = {},
   ): RunSummary[] {
     let q = `SELECT run_id, source, session_id, segment, project_path, git_branch, started_at,
               ended_at, duration_s, goal, label, label_reason, max_severity,
               verification_status, files_changed, lines_added, lines_removed, total_tokens,
-              cost_usd, cost_known, n_findings, n_events, trivial FROM runs WHERE 1=1`;
+              cost_usd, cost_known, n_findings, n_events, trivial, synthetic FROM runs WHERE 1=1`;
     const args: Array<string | number> = [];
     if (!opts.includeTrivial) q += " AND COALESCE(trivial,0) = 0";
+    if (opts.includeSynthetic === false) q += " AND COALESCE(synthetic,0) = 0";
     if (opts.project) {
       q += " AND project_path = ?";
       args.push(opts.project);

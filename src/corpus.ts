@@ -54,6 +54,11 @@ export interface CorpusReport {
     projects: number;
     trivial: number;
     withDiff: number;
+    /**
+     * Synthetic runs left out of every number above. Reported rather than merely
+     * dropped: a total that quietly excluded rows would read as full coverage.
+     */
+    syntheticExcluded: number;
   };
   verdicts: Counted[];
   detectors: DetectorRow[];
@@ -96,9 +101,20 @@ function counted(map: Map<string, number>, total: number): Counted[] {
  * hundreds of traces and holding them all would cost more memory than the
  * report is worth.
  */
-export function auditCorpus(store: Store): CorpusReport {
-  const summaries = store.listRuns({ limit: 1_000_000, includeTrivial: true });
+export function auditCorpus(store: Store, opts: { includeSynthetic?: boolean } = {}): CorpusReport {
+  const everything = store.listRuns({ limit: 1_000_000, includeTrivial: true });
+  const real = everything.filter((r) => !r.synthetic);
+
+  // Exclude synthetic runs by default, because measuring real behaviour is this
+  // command's entire job and fixtures in the number make it a lie.
+  //
+  // But only when there is real data to protect. A store holding nothing but
+  // `flightrec demo` output would otherwise audit to "no runs", which is the first
+  // thing a new user would try after seeding the demo.
+  const includeSynthetic = (opts.includeSynthetic ?? false) || real.length === 0;
+  const summaries = includeSynthetic ? everything : real;
   const total = summaries.length;
+  const syntheticExcluded = includeSynthetic ? 0 : everything.length - total;
 
   const sessions = new Set<string>();
   const projects = new Set<string>();
@@ -191,7 +207,14 @@ export function auditCorpus(store: Store): CorpusReport {
     .sort((a, b) => b.hits - a.hits || a.path.localeCompare(b.path));
 
   return {
-    coverage: { runs: total, sessions: sessions.size, projects: projects.size, trivial, withDiff },
+    coverage: {
+      runs: total,
+      sessions: sessions.size,
+      projects: projects.size,
+      trivial,
+      withDiff,
+      syntheticExcluded,
+    },
     verdicts: counted(verdicts, total),
     detectors,
     verification: counted(verification, total),
@@ -236,7 +259,10 @@ export function formatCorpusReport(r: CorpusReport): string {
   out.push("COVERAGE");
   out.push(
     `  ${c.runs} run(s) across ${c.sessions} session(s) and ${c.projects} project(s); ` +
-      `${c.trivial} trivial, ${c.withDiff} changed files`,
+      `${c.trivial} trivial, ${c.withDiff} changed files` +
+      (c.syntheticExcluded
+        ? `\n  ${c.syntheticExcluded} synthetic run(s) excluded — --include-synthetic to count them`
+        : ""),
   );
 
   out.push("\nVERDICTS");

@@ -17,7 +17,7 @@ trivial only if **all four** hold:
 
 ```
 toolCalls    === 0
-netDiffLines === 0
+churnedLines === 0
 commands     === 0
 durationS     < 60
 ```
@@ -145,7 +145,7 @@ inconclusive rather than passed.
 | Name | Value | Note |
 |---|---|---|
 | expensive | $1.00 | **unknown cost counts as 0**, so an unpriced model can never be "expensive" — deliberate |
-| changed | > 0 net diff lines | from edit-tool calls only; shell writes are invisible |
+| changed | > 0 churned lines | added **plus** removed, from edit-tool calls only; shell writes are invisible |
 
 Loop findings, any of which at ≥ medium triggers rules 3 and 4:
 

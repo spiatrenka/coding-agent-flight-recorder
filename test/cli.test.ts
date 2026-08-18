@@ -233,6 +233,137 @@ describe("stats", () => {
   });
 });
 
+describe("rm", () => {
+  const seeded = (): { path: string; ids: string[] } => {
+    const path = join(tmp, `rm-${Math.random().toString(36).slice(2)}.db`);
+    const store = new Store(path);
+    seedDemo(store, { root: join(tmp, "rm-seed") });
+    const ids = store.listRuns({ limit: 1000, includeTrivial: true }).map((r) => r.run_id);
+    store.close();
+    return { path, ids };
+  };
+
+  const countRuns = (path: string): number => {
+    const store = new Store(path);
+    const n = store.listRuns({ limit: 100000, includeTrivial: true }).length;
+    store.close();
+    return n;
+  };
+
+  it("refuses to run with no selection", async () => {
+    const { path } = seeded();
+    assert.equal(await main(["rm", "--db", path]), 1);
+    assert.match(stderr(), /nothing selected/);
+  });
+
+  it("deletes a single run named explicitly", async () => {
+    const { path, ids } = seeded();
+    const before = countRuns(path);
+    assert.equal(await main(["rm", ids[0] as string, "--db", path]), 0);
+    assert.match(stdout(), /deleted 1 run/);
+    assert.equal(countRuns(path), before - 1);
+  });
+
+  it("makes the deleted run unreachable", async () => {
+    const { path, ids } = seeded();
+    const id = ids[0] as string;
+    await main(["rm", id, "--db", path]);
+    out = [];
+    assert.equal(await main(["report", id, "--db", path]), 1);
+    assert.match(stderr(), new RegExp(`no run '${id}'`));
+  });
+
+  it("changes nothing with --dry-run", async () => {
+    const { path } = seeded();
+    const before = countRuns(path);
+    assert.equal(await main(["rm", "--synthetic", "--dry-run", "--db", path]), 0);
+    assert.match(stdout(), /would be deleted. Nothing was changed/);
+    assert.equal(countRuns(path), before);
+  });
+
+  it("requires --yes for more than one run", async () => {
+    const { path } = seeded();
+    const before = countRuns(path);
+    assert.equal(await main(["rm", "--synthetic", "--db", path]), 1);
+    assert.match(stderr(), /Re-run with --yes/);
+    assert.equal(countRuns(path), before, "the guard must not delete anything");
+  });
+
+  it("deletes in bulk with --yes, and clears the findings too", async () => {
+    const { path } = seeded();
+    assert.equal(await main(["rm", "--synthetic", "--yes", "--db", path]), 0);
+    assert.equal(countRuns(path), 0, "every demo run is synthetic");
+
+    const raw = new DatabaseSync(path);
+    const left = raw.prepare("SELECT COUNT(*) n FROM findings").get() as { n: number };
+    raw.close();
+    assert.equal(left.n, 0, "findings must not outlive their run");
+  });
+
+  it("reports a miss rather than claiming success", async () => {
+    const { path } = seeded();
+    assert.equal(await main(["rm", "definitely-not-a-run", "--db", path]), 1);
+    assert.match(stdout(), /no runs matched/);
+  });
+});
+
+describe("synthetic runs", () => {
+  it("marks demo runs so they are not merely guessable by path", () => {
+    const path = join(tmp, "synth.db");
+    const store = new Store(path);
+    seedDemo(store, { root: join(tmp, "synth-seed") });
+    const rows = store.listRuns({ limit: 1000, includeTrivial: true });
+    store.close();
+    assert.ok(rows.length > 0);
+    assert.ok(
+      rows.every((r) => r.synthetic === 1),
+      "every run seedDemo stored must be flagged",
+    );
+  });
+
+  it("keeps them out of a corpus audit that has real runs to measure", async () => {
+    // The bug this prevents: `demo` seeds into whatever store is configured, which
+    // is normally the real one, and those runs then skew the audit whose whole job
+    // is measuring real behaviour.
+    const path = join(tmp, "mixed.db");
+    const store = new Store(path);
+
+    // The OpenCode importer resolves message/ and part/ from the configured storage
+    // root rather than relative to the session file, so it has to be set even when
+    // loading one known path.
+    const storage = join(tmp, "mixed-storage");
+    const sessionPath = new OcBuilder(storage, { sessionId: "ses_realrun0000000000000001" })
+      .user("Fix the failing test")
+      .bash("npm test", "ℹ pass 3\nℹ fail 0")
+      .say("Fixed.")
+      .writeTo();
+    process.env["OPENCODE_STORAGE_DIR"] = storage;
+    try {
+      for (const r of new OpenCodeSource().load(sessionPath)) {
+        const a = analyze(r);
+        store.upsert(r, a, generate(r, a));
+      }
+    } finally {
+      delete process.env["OPENCODE_STORAGE_DIR"];
+    }
+
+    seedDemo(store, { root: join(tmp, "mixed-seed") });
+    store.close();
+
+    assert.equal(await main(["corpus", "--json", "--db", path]), 0);
+    const withoutSynthetic = JSON.parse(stdout()) as {
+      coverage: { runs: number; syntheticExcluded: number };
+    };
+    assert.equal(withoutSynthetic.coverage.runs, 1, "only the real run counts");
+    assert.ok(withoutSynthetic.coverage.syntheticExcluded > 0, "and the exclusion is reported");
+
+    out = [];
+    assert.equal(await main(["corpus", "--json", "--include-synthetic", "--db", path]), 0);
+    const withSynthetic = JSON.parse(stdout()) as { coverage: { runs: number } };
+    assert.ok(withSynthetic.coverage.runs > withoutSynthetic.coverage.runs);
+  });
+});
+
 describe("regrade", () => {
   /** A store whose runs claim an analyzer that no longer exists. */
   const staleDb = (): string => {

@@ -9,6 +9,7 @@ to that, and worth reading before you file anything.
 
 | Version | Supported |
 |---|---|
+| 0.2.x | yes |
 | 0.1.x | yes |
 | < 0.1 | no |
 
@@ -102,7 +103,34 @@ outlives that purge and may become the only remaining copy of a run. That is
 the point of the tool, but it means the database accumulates history you may
 have assumed was already gone.
 
-Deleting it is the complete removal path — there is nowhere else state lives:
+There are two removal paths. Prefer the first — until 0.2.0 only the second
+existed, which meant a credential surviving into one run cost you the whole
+archive, usually including runs whose transcripts Claude Code had already purged.
+
+**Remove specific runs:**
+
+```bash
+flightrec rm <run-id>              # one run, named explicitly
+flightrec rm --project /path/to/repo --yes
+flightrec rm --before 2026-07-01 --yes
+flightrec rm --synthetic --yes     # runs seeded by `flightrec demo`
+```
+
+`--dry-run` lists what would go and changes nothing; anything matching more than
+one run requires `--yes`. Deleting a run also deletes its findings.
+
+Demo runs stored before 0.2.0 carry no synthetic flag. Re-running `flightrec demo`
+marks them in place — it derives run ids from the fixture session, so it updates
+rather than duplicates — after which `--synthetic` selects them.
+
+Two limits worth knowing. The original transcript is never touched, so
+`flightrec ingest --force` will restore a deleted run if its transcript still
+exists — delete the transcript too if you need it gone for good. And SQLite
+leaves freed pages in the file, so the bytes may persist on disk until the
+database is rewritten; `sqlite3 ~/.flightrec/flightrec.db VACUUM;` forces that,
+or use the full removal below.
+
+**Remove everything** — nowhere else does state live:
 
 ```bash
 rm ~/.flightrec/flightrec.db

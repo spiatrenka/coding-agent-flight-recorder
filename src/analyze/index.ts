@@ -7,6 +7,7 @@
  */
 
 import {
+  churnedLines,
   diffMayBeIncomplete,
   type Finding,
   filesTouched,
@@ -14,7 +15,6 @@ import {
   type Label,
   linesAdded,
   linesRemoved,
-  netDiffLines,
   type Run,
   SEVERITY_ORDER,
   type Severity,
@@ -58,7 +58,7 @@ export interface Metrics {
   filesChanged: number;
   linesAdded: number;
   linesRemoved: number;
-  netDiffLines: number;
+  churnedLines: number;
   toolCalls: number;
   commands: number;
   failedCommands: number;
@@ -110,7 +110,7 @@ export function analyze(run: Run): Analysis {
     filesChanged: filesTouched(run).length,
     linesAdded: linesAdded(run),
     linesRemoved: linesRemoved(run),
-    netDiffLines: netDiffLines(run),
+    churnedLines: churnedLines(run),
     toolCalls: toolCalls(run).length,
     commands: run.commands.length,
     failedCommands: run.commands.filter((c) => c.ok === false).length,
@@ -183,7 +183,7 @@ function assignLabel(
     };
   }
 
-  const changed = netDiffLines(run) > 0;
+  const changed = churnedLines(run) > 0;
   const loops = findings.filter((f) => f.category === "loop" && sev(f) >= 2);
   const expensive = (run.usage.costUsd ?? 0) >= 1.0;
   const files = filesTouched(run).length;

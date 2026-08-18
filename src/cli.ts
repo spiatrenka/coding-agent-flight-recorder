@@ -97,6 +97,13 @@ function cmdIngest(args: Args): number {
     `\n${res.filesParsed} file(s) parsed, ${res.filesSkipped} unchanged, ` +
       `${res.runsStored} run(s) stored in ${res.elapsedS}s`,
   );
+  if (res.filesRegraded) {
+    console.log(
+      `${res.filesRegraded} of those were unchanged on disk and re-read because this ` +
+        `build grades differently (analyzer ${ANALYZER_VERSION}). Their verdicts may have ` +
+        `moved; \`flightrec regrade\` does the same for runs whose transcripts are gone.`,
+    );
+  }
   if (res.errors.length) {
     console.log(`${res.errors.length} error(s):`);
     for (const e of res.errors.slice(0, 10)) console.log(`  ${e}`);
@@ -236,6 +243,76 @@ function cmdRegrade(args: Args): number {
   return errors.length ? 1 : 0;
 }
 
+/**
+ * Delete stored runs. The only destructive command in the tool.
+ *
+ * It exists because the alternative was worse: before this, the documented way to
+ * remove anything was deleting the whole database — see SECURITY.md, which also
+ * says redaction is a mitigation rather than a guarantee. That made "a credential
+ * survived into one run" cost an entire archive, and Claude Code has usually purged
+ * the transcripts needed to rebuild it.
+ *
+ * Deleting more than one run requires `--yes`. That is a flag rather than a prompt
+ * so the guard is reachable from a test and behaves the same when piped.
+ */
+function cmdRemove(args: Args): number {
+  const store = new Store(args.db);
+  const opts = {
+    ids: args.positional,
+    project: (args.flags.get("project") as string) ?? null,
+    before: (args.flags.get("before") as string) ?? null,
+    synthetic: args.flags.has("synthetic"),
+  };
+
+  if (!opts.ids.length && !opts.project && !opts.before && !opts.synthetic) {
+    console.error(
+      "nothing selected. Give one or more run ids, or --project <path>, " +
+        "--before <date>, or --synthetic.",
+    );
+    store.close();
+    return 1;
+  }
+
+  const matches = store.findForDeletion(opts);
+  if (!matches.length) {
+    console.log("no runs matched — nothing deleted");
+    store.close();
+    return 1;
+  }
+
+  for (const m of matches) {
+    console.log(
+      `  ${m.run_id}  ${(m.started_at ?? "").slice(0, 16).padEnd(17)} ` +
+        `${m.label.padEnd(13)} ${(m.goal ?? "(no prompt)").slice(0, 48)}`,
+    );
+  }
+
+  const dryRun = args.flags.has("dry-run");
+  if (dryRun) {
+    console.log(`\n${matches.length} run(s) would be deleted. Nothing was changed.`);
+    store.close();
+    return 0;
+  }
+
+  if (matches.length > 1 && !args.flags.has("yes")) {
+    console.error(
+      `\n${matches.length} run(s) matched. Re-run with --yes to delete them, ` +
+        `or --dry-run to review first.`,
+    );
+    store.close();
+    return 1;
+  }
+
+  const n = store.deleteRuns(matches.map((m) => m.run_id));
+  console.log(`\ndeleted ${n} run(s)`);
+  console.log(
+    "The original transcripts were not touched. `ingest --force` will restore any " +
+      "run whose transcript still exists.",
+  );
+  store.close();
+  return 0;
+}
+
 function cmdReport(args: Args): number {
   const store = new Store(args.db);
   const runId = args.positional[0];
@@ -269,7 +346,7 @@ function cmdStats(args: Args): number {
 
 function cmdCorpus(args: Args): number {
   const store = new Store(args.db);
-  const report = auditCorpus(store);
+  const report = auditCorpus(store, { includeSynthetic: args.flags.has("include-synthetic") });
   if (report.coverage.runs === 0) {
     console.log("no runs — try `flightrec ingest` first");
     store.close();
@@ -317,6 +394,12 @@ Commands:
   regrade               re-grade stored runs from their stored traces, so an
                         analyzer upgrade reaches runs whose transcripts are gone
     --all               regrade every run, not only the out-of-date ones
+  rm <run-id>...        delete stored runs (the originals are never touched)
+    --project <path>    every run for one project
+    --before <date>     runs started before an ISO date
+    --synthetic         every run seeded by the demo command
+    --dry-run           list what would go, change nothing
+    --yes               required to delete more than one run
   serve                 open the local dashboard
     --port <n>          default 8787
     --ingest            ingest before serving
@@ -324,6 +407,7 @@ Commands:
   stats                 aggregate stats across stored runs
   corpus                audit what the detectors did across the whole store
     --json              machine-readable instead of a table
+    --include-synthetic  count runs seeded by the demo command too
 
 Global:
   --db <path>           SQLite database (default ~/.flightrec/flightrec.db)
@@ -338,6 +422,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return cmdList(args);
     case "regrade":
       return cmdRegrade(args);
+    case "rm":
+      return cmdRemove(args);
     case "report":
       return cmdReport(args);
     case "serve":

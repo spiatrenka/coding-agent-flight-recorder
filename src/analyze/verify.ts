@@ -8,10 +8,10 @@
 
 import {
   type Command,
+  churnedLines,
   type Evidence,
   type Finding,
   filesTouched,
-  netDiffLines,
   normalizedCommand,
   type Run,
 } from "../model.js";
@@ -189,7 +189,7 @@ export function unverifiedClaimFindings(run: Run, v: Verification): Finding[] {
       "executed anywhere in it. The claim has nothing behind it."
     : `The run claims success while the checks it ran ended in state '${v.status}'. The ` +
       `transcript and the exit codes disagree; the exit codes are the evidence.`;
-  const severity = notRun ? (netDiffLines(run) > 0 ? "high" : "medium") : "high";
+  const severity = notRun ? (churnedLines(run) > 0 ? "high" : "medium") : "high";
 
   return [
     {
@@ -219,7 +219,7 @@ export function unverifiedClaimFindings(run: Run, v: Verification): Finding[] {
 }
 
 export function noVerificationFindings(run: Run, v: Verification): Finding[] {
-  if (v.status !== "not_run" || netDiffLines(run) === 0) return [];
+  if (v.status !== "not_run" || churnedLines(run) === 0) return [];
   const files = filesTouched(run);
   return [
     {
