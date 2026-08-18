@@ -34,8 +34,13 @@ import { allVerificationFindings, analyzeVerification, type Verification } from 
  * 1.1.0 added the `unchanged` label, so a store graded by 1.0.0 still shows those
  * runs as `questionable`. `flightrec list` and the dashboard say so rather than
  * leaving a silent mix — the store is an archive, so deleting it is not an answer.
+ *
+ * 1.2.0 stopped treating elapsed time as evidence of waste, so long no-diff runs
+ * that a 1.1.0 store graded `wasteful` are now `unchanged`. Since 1.2.0 `ingest`
+ * regrades on an analyzer change instead of skipping unchanged files, so this is
+ * the last version that needs `--force` to take effect.
  */
-export const ANALYZER_VERSION = "1.1.0";
+export const ANALYZER_VERSION = "1.2.0";
 
 export interface StopPoint {
   eventIdx: number;
@@ -147,7 +152,7 @@ export type LabelRule =
   | "changed-verified"
   | "changed-failing"
   | "changed-unverified"
-  | "no-diff-brief"
+  | "no-diff-no-signal"
   | "fallback";
 
 /**
@@ -180,7 +185,6 @@ function assignLabel(
 
   const changed = netDiffLines(run) > 0;
   const loops = findings.filter((f) => f.category === "loop" && sev(f) >= 2);
-  const longRun = (run.durationS ?? 0) >= 300;
   const expensive = (run.usage.costUsd ?? 0) >= 1.0;
   const files = filesTouched(run).length;
 
@@ -199,9 +203,15 @@ function assignLabel(
     };
   }
 
-  if (!changed && (longRun || expensive || loops.length)) {
+  // Duration is deliberately absent from this condition. A long run that changed
+  // nothing is not evidence of waste — it is the shape of a code review, an
+  // investigation, or a question that took real reading to answer. Measured over a
+  // 509-run corpus, requiring elapsed time alone made `unchanged` unreachable above
+  // five minutes (0 of 54 such runs got it) and accounted for 45% of every
+  // `wasteful` verdict. What distinguishes spinning from investigating is
+  // repetition or spend, and both are detected directly.
+  if (!changed && (expensive || loops.length)) {
     const why: string[] = [];
-    if (longRun) why.push(`${Math.floor((run.durationS ?? 0) / 60)} minutes`);
     if (expensive) why.push(`~$${(run.usage.costUsd ?? 0).toFixed(2)}`);
     if (loops.length) why.push(`${loops.length} repetition finding(s)`);
     const caveat = opaque ? " (shell writes may not be reflected)" : "";
@@ -250,14 +260,18 @@ function assignLabel(
       reason: "files changed, nothing run to confirm the change works",
     };
   }
-  if (!changed && !longRun && !loops.length) {
+  if (!changed && !loops.length) {
     // Not `questionable`. The repository is untouched and nothing suggests the run
     // was trying to change it — a question answered, a file read, a review. Calling
     // that "questionable" put it in the same bucket as an unverified diff, which is
     // the opposite situation, and made that label 60% of a real corpus.
+    //
+    // This branch used to also require the run to be brief, which quietly capped
+    // `unchanged` at five minutes and sent every longer investigation to `wasteful`.
+    // A thorough review takes longer than five minutes by definition.
     return {
       label: "unchanged",
-      rule: "no-diff-brief",
+      rule: "no-diff-no-signal",
       reason: "nothing was changed — a question, a review or an investigation, not a code change",
     };
   }

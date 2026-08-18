@@ -34,13 +34,22 @@ Severity ranks `info 0 · low 1 · medium 2 · high 3`.
 |---|---|---|
 | 1 | any finding in `secrets` or `destructive` at ≥ medium, **or** `scope` at ≥ high | **risky** |
 | 2 | no diff **and** shell writes may have happened **and** no loop findings | **questionable** |
-| 3 | no diff **and** (duration ≥ 300s **or** cost ≥ $1.00 **or** a loop finding ≥ medium) | **wasteful** |
+| 3 | no diff **and** (cost ≥ $1.00 **or** a loop finding ≥ medium) | **wasteful** |
 | 4 | diff **and** a loop finding ≥ medium **and** verification ≠ `passed` | **wasteful** |
 | 5 | diff **and** verification === `passed` | **productive** |
 | 6 | diff **and** verification is `failed` or `mixed` | **questionable** |
 | 7 | diff **and** verification === `not_run` | **questionable** |
-| 8 | no diff **and** under 300s **and** no loop findings | **unchanged** |
+| 8 | no diff **and** no loop findings | **unchanged** |
 | 9 | anything left over | **questionable** |
+
+**Duration decides nothing.** Rule 3 tested `duration ≥ 300s` until analyzer 1.2.0, and
+because it is evaluated before rule 8, that gave `unchanged` a hard five-minute
+ceiling: measured over a real 509-run corpus, **0 of 54** no-diff runs longer than
+five minutes ever received it, while a thorough code review takes longer than five
+minutes by definition. Removing the duration arm relabelled 22 runs `wasteful` →
+`unchanged` and left 31 long no-diff runs still `wasteful`, because those had cost or
+repetition behind them. Elapsed time is still reported everywhere; it just no longer
+decides a verdict on its own.
 
 ### What each verdict means
 
@@ -64,6 +73,11 @@ took `questionable` to 16%, where it means exactly one thing and is worth acting
 
 The tool's headline question is *should I trust this diff*. When there is no diff,
 the question does not apply, and saying so is more useful than hedging.
+
+1.2.0 finished the job. The label was reachable only for runs under five minutes, so
+the long half of exactly the category it was created for — reviews, investigations,
+questions that took real reading to answer — kept landing on `wasteful`. On the same
+store `unchanged` went from 42.8% to 47.2% and `wasteful` from 24.4% to 20.0%.
 
 ---
 
@@ -130,7 +144,6 @@ inconclusive rather than passed.
 
 | Name | Value | Note |
 |---|---|---|
-| long run | 300s | five minutes |
 | expensive | $1.00 | **unknown cost counts as 0**, so an unpriced model can never be "expensive" — deliberate |
 | changed | > 0 net diff lines | from edit-tool calls only; shell writes are invisible |
 
@@ -155,12 +168,18 @@ while checking your work is iteration, not churn.
 Stated rather than hidden, because these are the rules most likely to be wrong for
 you:
 
-- **The 300s and $1.00 thresholds are round numbers** with no evidence behind them.
-- **Duration alone is weak evidence of waste.** Rule 3 sends a five-minute run with
-  no diff to `wasteful`, and a long code review is not waste. Measured on one real
-  corpus, 21 of 90 such runs triggered on duration alone; the other 69 were driven
-  by cost or repetition.
-- **Rule 9 is a fallback.** If runs are landing there, the cascade has a gap.
+- **The $1.00 threshold is a round number** with no evidence behind it.
+- **An unpriced model cannot be expensive**, and since 1.2.0 removed the duration arm,
+  a long no-diff run on an unpriced model with no repetition now lands `unchanged`
+  whatever it actually cost. That is the honest reading of the evidence available —
+  the alternative is asserting waste from elapsed time, which is what 1.2.0 removed —
+  but it is a real hole. Tokens are recorded even when price is not, so a
+  token-based signal is the obvious way to close it.
+- **Rule 9 is a fallback.** If runs are landing there, the cascade has a gap. Measured
+  over 509 real runs, **0** land there today.
+- **Duration alone was a soft spot until 1.2.0, and is now removed** — see the note
+  under the cascade. Kept here because the old rule is what an existing store was
+  graded by, and `flightrec regrade` is what moves it.
 
 If you disagree with a grade, `npm run corpus` reports what fired across a whole
 store, and a

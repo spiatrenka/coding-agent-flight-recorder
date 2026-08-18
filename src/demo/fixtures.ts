@@ -488,11 +488,12 @@ export function fixtureExpensiveNoDiff(): Builder {
 }
 
 /**
- * A question answered. Reads, no edits, over in well under five minutes.
+ * A question answered. Reads, no edits, over in a couple of minutes.
  *
- * The fixture set had no run that reached the `unchanged` branch: the only other
- * no-diff fixture runs for nineteen minutes and lands on `wasteful`. Without this
- * one the demo cannot show all five verdicts, which is its stated job.
+ * Added when the fixture set had no run reaching the `unchanged` branch, because
+ * the only other no-diff fixture ran for nineteen minutes and duration alone sent
+ * it to `wasteful`. Analyzer 1.2.0 removed that rule, so `longNoDiff` now lands
+ * here too — this fixture stays as the short, unambiguous case.
  */
 export function fixtureQuestion(): Builder {
   const b = new Builder({ start: new Date("2026-08-13T15:00:00Z") });

@@ -365,17 +365,40 @@ describe("the unchanged label", () => {
     const { run } = load(fixtureQuestion());
     const a = analyze(run);
     assert.equal(a.label, "unchanged");
-    assert.equal(a.labelRule, "no-diff-brief");
+    assert.equal(a.labelRule, "no-diff-no-signal");
     assert.doesNotMatch(a.labelReason, /questionable|waste|problem/i);
   });
 
-  it("still calls a long empty run wasteful, not unchanged", () => {
-    // `unchanged` is for runs that were not trying to change anything. Time or
-    // money with nothing to show is a different claim and keeps its own label.
+  it("calls a long investigation unchanged too, not wasteful", () => {
+    // This assertion was inverted in analyzer 1.2.0, and the reason it was wrong
+    // before is worth keeping: `unchanged` is for runs that were not trying to
+    // change anything, and this fixture asked why a job was slow, read six files
+    // and correctly identified an unindexed sequential scan. It is the label's own
+    // definition. The old rule tested elapsed time, which capped `unchanged` at
+    // five minutes and sent every longer review to `wasteful` — 0 of 54 such runs
+    // in a real corpus escaped it.
     const { run } = load(fixtureLongNoDiff());
     const a = analyze(run);
+    assert.ok((run.durationS ?? 0) > 300, "the fixture must cross the old threshold");
+    assert.equal(a.label, "unchanged");
+    assert.equal(a.labelRule, "no-diff-no-signal");
+  });
+
+  it("keeps calling a no-diff run wasteful when it repeated itself", () => {
+    // What replaced duration as the evidence. Repetition with nothing to show is
+    // still waste; taking a long time over a question is not.
+    const b = new Builder({ start: new Date("2026-08-12T11:00:00Z") });
+    b.user("Find out why the deploy fails");
+    for (let i = 0; i < 4; i++) {
+      b.bash("kubectl get pods -n prod", { stdout: "No resources found." });
+      b.idle(2);
+    }
+    b.say("I could not determine it.");
+    const a = analyze(load(b).run);
+
     assert.equal(a.label, "wasteful");
     assert.equal(a.labelRule, "no-diff-spent");
+    assert.match(a.labelReason, /repetition/);
   });
 
   it("records which rule decided every label", () => {
