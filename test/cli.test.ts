@@ -14,10 +14,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { analyze } from "../src/analyze/index.js";
+import { ANALYZER_VERSION, analyze } from "../src/analyze/index.js";
 import { type Args, main, parseArgs } from "../src/cli.js";
 import { seedDemo } from "../src/demo/index.js";
 import { OcBuilder } from "../src/demo/opencodeFixtures.js";
@@ -229,6 +230,50 @@ describe("stats", () => {
     assert.equal(await run("stats"), 0);
     const s = JSON.parse(stdout()) as Record<string, unknown>;
     assert.ok(Number(s["runs"]) > 0);
+  });
+});
+
+describe("regrade", () => {
+  /** A store whose runs claim an analyzer that no longer exists. */
+  const staleDb = (): string => {
+    const path = join(tmp, `stale-${Math.random().toString(36).slice(2)}.db`);
+    const store = new Store(path);
+    seedDemo(store, { root: join(tmp, "regrade-seed") });
+    store.close();
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE runs SET analyzer_version='0.9.0'");
+    raw.close();
+    return path;
+  };
+
+  it("regrades runs the current analyzer did not grade", async () => {
+    const path = staleDb();
+    assert.equal(await main(["regrade", "--db", path]), 0);
+    assert.match(stdout(), /regraded \d+ run\(s\) with analyzer/);
+
+    const store = new Store(path);
+    const versions = store.stats()["analyzer_versions"] as Record<string, number>;
+    store.close();
+    assert.deepEqual(Object.keys(versions), [ANALYZER_VERSION], "no stale rows may remain");
+  });
+
+  it("does nothing when the store is already current", async () => {
+    const path = join(tmp, "current.db");
+    const store = new Store(path);
+    seedDemo(store, { root: join(tmp, "current-seed") });
+    store.close();
+
+    assert.equal(await main(["regrade", "--db", path]), 0);
+    assert.match(stdout(), /nothing to regrade/);
+  });
+
+  it("works from the stored trace, so it needs no transcript on disk", async () => {
+    // The reason this command exists: Claude Code purges transcripts after about
+    // thirty days, and `ingest` cannot regrade a file that is gone.
+    const path = staleDb();
+    rmSync(join(tmp, "regrade-seed"), { recursive: true, force: true });
+    assert.equal(await main(["regrade", "--db", path]), 0);
+    assert.doesNotMatch(stdout(), /nothing to regrade/);
   });
 });
 
