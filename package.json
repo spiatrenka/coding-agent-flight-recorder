@@ -63,6 +63,7 @@
     "list": "node dist/src/cli.js list",
     "report": "node dist/src/cli.js report",
     "regrade": "node dist/src/cli.js regrade",
+    "rm": "node dist/src/cli.js rm",
     "stats": "node dist/src/cli.js stats",
     "corpus": "node dist/src/cli.js corpus"
   },

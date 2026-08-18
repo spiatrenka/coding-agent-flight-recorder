@@ -264,7 +264,21 @@ export function linesRemoved(run: Run): number {
   return run.fileEdits.reduce((n, e) => n + (e.applied ? (e.linesRemoved ?? 0) : 0), 0);
 }
 
-export function netDiffLines(run: Run): number {
+/**
+ * Lines added *plus* lines removed — total churn, not net change.
+ *
+ * Named `netDiffLines` until 0.2.0, which was simply wrong and had consequences: a
+ * run that rewrites 200 lines reports 400, so any threshold expressed in "lines"
+ * was effectively half what its author intended. `risk.blast_radius` fires above
+ * 400 and, measured over a real 509-run store, that put it at the 53rd percentile
+ * of runs with a diff — a finding titled "Large change surface" tripping on the
+ * median run.
+ *
+ * Kept as churn rather than switched to net, because `> 0` is the "did anything
+ * change" test used by the verdict cascade and a pure-replacement edit must count
+ * as a change. Thresholds above zero are the part that needs recalibrating.
+ */
+export function churnedLines(run: Run): number {
   return linesAdded(run) + linesRemoved(run);
 }
 
@@ -283,7 +297,7 @@ export function unrecordedWrites(run: Run): Command[] {
 
 /**
  * True when the recorded diff is known to be incomplete. Callers must not read
- * `netDiffLines(run) === 0` as "the repository is unchanged" when this holds.
+ * `churnedLines(run) === 0` as "the repository is unchanged" when this holds.
  */
 export function diffMayBeIncomplete(run: Run): boolean {
   return unrecordedWrites(run).length > 0;
@@ -297,7 +311,7 @@ export function diffMayBeIncomplete(run: Run): boolean {
 export function isTrivialRun(run: Run): boolean {
   return (
     toolCalls(run).length === 0 &&
-    netDiffLines(run) === 0 &&
+    churnedLines(run) === 0 &&
     run.commands.length === 0 &&
     (run.durationS ?? 0) < 60
   );

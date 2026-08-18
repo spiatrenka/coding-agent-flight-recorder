@@ -12,6 +12,14 @@ export interface IngestResult {
   filesParsed: number;
   filesSkipped: number;
   runsStored: number;
+  /**
+   * Files re-read only because the analyzer changed, not because they changed.
+   *
+   * Reported so an upgrade's first `ingest` cannot rewrite a whole archive in
+   * silence. It is the intended behaviour, but "scan for new transcripts" and
+   * "re-grade everything I have ever stored" deserve different sentences.
+   */
+  filesRegraded: number;
   errors: string[];
   elapsedS: number;
   sourcesUsed: string[];
@@ -29,6 +37,7 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
   const started = Date.now();
   const res: IngestResult = {
     filesSeen: 0,
+    filesRegraded: 0,
     filesParsed: 0,
     filesSkipped: 0,
     runsStored: 0,
@@ -56,6 +65,10 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
       if (!opts.force && store.isUnchanged(item.path, item.mtime, item.size, ANALYZER_VERSION)) {
         res.filesSkipped++;
         continue;
+      }
+      // Unchanged on disk, so the only reason to be here is a grading change.
+      if (!opts.force && store.isUnchanged(item.path, item.mtime, item.size, null)) {
+        res.filesRegraded++;
       }
 
       let runs: Run[];

@@ -72,6 +72,7 @@ npm run serve
 | `npm run list` | list analysed runs | |
 | `npm run report -- <run-id>` | print one postmortem | |
 | `npm run regrade` | re-grade stored runs from stored traces after an upgrade | |
+| `npm run rm -- <run-id>` | delete stored runs (`--dry-run`, `--project`, `--synthetic`) | |
 | `npm run stats` | aggregate stats | |
 | `npm run corpus -- --db <path>` | audit what the detectors did across a whole store | |
 | `npm run flightrec -- <cmd>` | escape hatch for any CLI command | |
@@ -232,7 +233,7 @@ is what you actually want, use the thing that does it well:
 
 Determinism is the feature. The same run always produces the same verdict, so:
 
-- the detectors are regression-testable — 266 tests across 13 files, each pinned to a fixture or to
+- the detectors are regression-testable — 275 tests across 13 files, each pinned to a fixture or to
   a defect that actually occurred,
 - nothing is invented — every sentence traces to a field in the trace,
 - it costs nothing to run and works offline,
@@ -287,8 +288,11 @@ whether any credential shape survived into it. That check found two real redacti
 project, so it is worth running rather than trusting.
 
 Ingest is also an *archival* act: Claude Code purges transcripts after 30 days by default, and this
-database outlives them. `rm ~/.flightrec/flightrec.db` is the complete deletion path — there is
-nowhere else state lives. See [SECURITY.md](SECURITY.md) for the full threat model.
+database outlives them. `flightrec rm` removes specific runs — by id, `--project`, `--before` or
+`--synthetic` — and `rm ~/.flightrec/flightrec.db` removes everything, since there is nowhere else
+state lives. See [SECURITY.md](SECURITY.md) for the full threat model and the two caveats
+(`ingest --force` can restore a deleted run whose transcript survives, and SQLite keeps freed
+pages until a `VACUUM`).
 
 ---
 
@@ -322,7 +326,7 @@ src/
     opencodeFixtures.ts synthetic OpenCode storage tree
     opencodeDemo.ts    demo sessions covering the OpenCode-only paths
     index.ts           seedDemo — what `flightrec demo` runs
-test/                  13 files, 266 tests (node:test)
+test/                  13 files, 275 tests (node:test)
   detectors.test.ts    the core regression suite
   improvements.test.ts importer + analyzer regressions
   findings.test.ts     the finding ids nothing else asserts

@@ -130,6 +130,8 @@ button.badge{box-shadow:inset 0 -1px 0 rgba(0,0,0,.25)}
 .run[aria-current="true"]{background:var(--panel-2);border-left-color:var(--ink)}
 .run .goal{font-size:13px;line-height:1.4;margin-bottom:5px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.synth{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;
+  border:1px solid var(--line);border-radius:3px;color:var(--muted);margin-right:4px}
 .run .meta{display:flex;gap:9px;align-items:center;font-family:var(--mono);
   font-size:10.5px;color:var(--muted);flex-wrap:wrap}
 .dot{width:7px;height:7px;border-radius:2px;flex:none}
@@ -390,11 +392,15 @@ function renderRail(){
        as text — alongside cost, files and tokens — was five redundant chips
        per row in a list whose only job is "which of these do I open". */
     const attention = r.max_severity === "high" ? '<span class="flag" title="high-severity finding">!</span>' : "";
+    /* Synthetic runs come from `flightrec demo`, which seeds into whatever store is
+       configured — usually the real one. Say so on the row, so a demo run is never
+       mistaken for something that happened. */
+    const synth = r.synthetic ? '<span class="synth" title="seeded by flightrec demo">demo</span>' : "";
     html += `<button type="button" class="run v-${esc(r.label)}" data-id="${esc(r.run_id)}"
         aria-current="${r.run_id === CURRENT}">
       <div class="goal">${esc(r.goal || "no prompt in this segment")}</div>
       <div class="meta">
-        <span class="dot"></span>${attention}
+        <span class="dot"></span>${attention}${synth}
         <span>${when(r.started_at)}</span><span>${dur(r.duration_s)}</span>
       </div></button>`;
   }
@@ -703,7 +709,10 @@ const RULE_LABEL = {
 function verdictWhy(a, t){
   const m = a.metrics || {};
   const facts = [
-    ["diff", m.netDiffLines ? `+${m.linesAdded}/−${m.linesRemoved} across ${m.filesChanged} file(s)` : "nothing changed"],
+    /* `churnedLines` since 0.2.0; older stored analyses still say `netDiffLines`,
+       and this pane must not read "nothing changed" for every run in an archive
+       that has not been regraded yet. */
+    ["diff", (m.churnedLines ?? m.netDiffLines) ? `+${m.linesAdded}/−${m.linesRemoved} across ${m.filesChanged} file(s)` : "nothing changed"],
     ["verification", a.verification ? a.verification.status : "unknown"],
     ["duration", m.durationS == null ? "unknown" : dur(m.durationS)],
     ["cost", m.costKnown ? "$" + Number(m.costUsd).toFixed(2) : "unknown"],

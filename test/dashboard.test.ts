@@ -424,7 +424,7 @@ describe("the verdict explains itself", () => {
     labelReason: "…",
     verification: { status: label === "productive" ? "passed" : "not_run" },
     metrics: {
-      netDiffLines: label === "unchanged" ? 0 : 4,
+      churnedLines: label === "unchanged" ? 0 : 4,
       linesAdded: 3,
       linesRemoved: 1,
       filesChanged: label === "unchanged" ? 0 : 2,

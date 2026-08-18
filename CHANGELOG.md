@@ -36,6 +36,18 @@ with one project-specific rule worth stating up front:
   brevity. Stored runs graded by an older analyzer keep the old id; the dashboard
   falls back to showing it verbatim rather than breaking.
 
+- **`netDiffLines` is renamed `churnedLines`**, because it returns lines added *plus*
+  lines removed — churn, not net change — and the old name had consequences rather
+  than just being untidy. A run that rewrites 200 lines reports 400, so any threshold
+  written in "lines" was effectively half what its author intended:
+  `risk.blast_radius` fires above 400, which on a real 509-run store puts it at the
+  **53rd percentile** of runs with a diff, for a finding titled "Large change
+  surface". Recalibrating that threshold is deliberately left to a later release —
+  it changes no verdict, since the finding is `scope`/`medium` and rule 1 needs
+  `scope` at `high`. `docs/GRADING.md` said "net diff lines" and is corrected. The
+  dashboard reads the old field name as a fallback so an un-regraded archive does not
+  render every run as "nothing changed".
+
 ### Added
 
 - **`flightrec regrade`** — re-grade stored runs from their stored traces, without
@@ -44,7 +56,40 @@ with one project-specific rule worth stating up front:
   real store the stored trace is the only remaining copy and `ingest` has nothing to
   re-read. `--all` regrades every run rather than only out-of-date ones.
 
+- **`flightrec rm`** — delete stored runs, by id or with `--project`, `--before` or
+  `--synthetic`. `--dry-run` lists what would go; anything matching more than one run
+  requires `--yes`. Findings go with the run.
+
+  Until now the only documented removal path was deleting the whole database, which
+  made "a credential survived redaction into one run" cost an entire archive — and
+  `SECURITY.md` is explicit that redaction is a mitigation rather than a guarantee, so
+  that case is expected rather than hypothetical. Two limits are documented rather
+  than papered over: transcripts are never touched, so `ingest --force` restores a
+  deleted run whose transcript still exists; and SQLite keeps freed pages until a
+  `VACUUM`.
+
+- **Synthetic runs are marked as such.** `flightrec demo` seeds into whatever store is
+  configured — normally the real one — and those runs were previously identifiable
+  only *incidentally*, by their temp-directory source path. They now carry a
+  `synthetic` flag, are excluded from `flightrec corpus` (whose entire job is
+  measuring real behaviour), and are badged `demo` in the dashboard.
+
+  `corpus` reports the number excluded rather than silently dropping it, and
+  `--include-synthetic` restores the old totals. A store containing *only* demo runs
+  audits them normally, since otherwise the first thing a new user tries after `demo`
+  would report nothing.
+
+  Demo runs stored by an earlier version carry no flag. Because `demo` derives run
+  ids from the fixture session id, re-running it marks the existing rows rather than
+  duplicating them — so `flightrec demo` followed by `flightrec rm --synthetic --yes`
+  clears legacy demo data from a real store.
+
 ### Fixed
+
+- **An upgrade's first `ingest` says when it is regrading.** The fix below means a
+  plain `ingest` can rewrite the analysis of every run it has ever stored, which is
+  intended but is a much larger act than "scan for new transcripts". It now reports
+  how many files were unchanged on disk and re-read only because grading changed.
 
 - **An analyzer upgrade no longer leaves stale verdicts behind.** `isUnchanged()`
   compared only path, mtime and size, so a release that changed grading skipped every

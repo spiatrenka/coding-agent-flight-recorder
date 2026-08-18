@@ -15,11 +15,11 @@ import { posix } from "node:path";
 
 import {
   type Command,
+  churnedLines,
   diffMayBeIncomplete,
   type Evidence,
   type Finding,
   filesTouched,
-  netDiffLines,
   type Run,
   type Severity,
   toolCalls,
@@ -385,7 +385,7 @@ export function detectDestructiveCommands(run: Run): Finding[] {
 
 export function detectBlastRadius(run: Run, verification: Verification): Finding[] {
   const files = filesTouched(run);
-  const lines = netDiffLines(run);
+  const lines = churnedLines(run);
   const smallAsk = run.goalIsKnown && (run.goal ?? "").length < 200;
 
   const reasons: string[] = [];
@@ -426,7 +426,7 @@ export function detectWastedSpend(run: Run): Finding[] {
   // Both detectors below are "spent X, changed nothing" claims. Neither can be
   // made honestly when the run wrote through the shell, because then the trace
   // does not know whether anything changed.
-  const changed = netDiffLines(run) > 0 || diffMayBeIncomplete(run);
+  const changed = churnedLines(run) > 0 || diffMayBeIncomplete(run);
 
   if (dur >= 600 && !changed) {
     findings.push({

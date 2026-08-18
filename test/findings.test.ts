@@ -27,7 +27,7 @@ import {
   fixtureUnverifiedClaim,
   fixtureWideDiff,
 } from "../src/demo/fixtures.js";
-import { type Finding, netDiffLines, type Run } from "../src/model.js";
+import { churnedLines, type Finding, type Run } from "../src/model.js";
 import { generate } from "../src/postmortem.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 
@@ -99,7 +99,7 @@ describe("risk.blast_radius", () => {
 
   it("flags a large diff with no passing verification", () => {
     const { run, findings } = load(fixtureBigDiff());
-    const changed = netDiffLines(run);
+    const changed = churnedLines(run);
     assert.ok(changed >= 400, `premise: the diff really is large (was ${changed})`);
     const f = find(findings, "risk.blast_radius");
     assert.match(f.detail, /lines changed with no passing verification/);

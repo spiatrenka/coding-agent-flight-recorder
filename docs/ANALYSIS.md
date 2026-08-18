@@ -93,19 +93,19 @@ a hook's deny holds even under `bypassPermissions`; HTTP hooks can POST to `loca
 
 **G1 — Nobody joins the trace to the repository.**
 Every layer above stops at the transcript boundary. The thing that actually decides whether a run
-was worth it — net diff, tests green, build passing, scope of blast radius — lives on the other
+was worth it — the diff, tests green, build passing, scope of blast radius — lives on the other
 side of that boundary. Trace-level success and repo-level success are different variables and the
 correlation is weaker than anyone assumes.
 
 **G2 — There is no verdict artifact.**
 No tool produces a thing you can read in 30 seconds that says *"wasteful: 41 minutes, $3.10,
-zero net diff, the same pytest invocation failed four times."* Viewers show; they don't judge.
+zero diff, the same pytest invocation failed four times."* Viewers show; they don't judge.
 The absence of a verdict is why nobody reviews runs — the review costs more than the run.
 
 **G3 — Waste is a shape, not an event.**
 There is no line in the JSONL that says "I am stuck." Stuckness is only visible over the *whole*
 run: the same `Bash` command run 5 times, an Edit oscillating a file between two states,
-the same assertion failing repeatedly, high wall-clock with an empty net diff. Per-event tools —
+the same assertion failing repeatedly, real spend with an empty diff. Per-event tools —
 which is all of them — structurally cannot see this. It requires whole-run analysis with the run
 as the unit of computation.
 
@@ -225,7 +225,7 @@ is not a clean run.
    event indices), and a suggested rule. The postmortem is a *rendering* of findings, and the
    firewall section is a *different rendering of the same findings*. One detector, three surfaces.
 4. **Grade the run, not the transcript.** `productive / questionable / wasteful / risky` are
-   assigned from repo-facing evidence — net diff, verification signal, loop count — with `risky`
+   assigned from repo-facing evidence — the diff, verification signal, loop count — with `risky`
    able to override any other label, because a run that touched secrets is not "productive" no
    matter how good the diff was.
 5. **Honest unknowns everywhere.** Cost, verification status, and goal are all `unknown`-capable.

@@ -16,10 +16,10 @@ import { analyze } from "../src/analyze/index.js";
 import { classifyCommand, mutatesWorkingTree } from "../src/commands.js";
 import { OcBuilder } from "../src/demo/opencodeFixtures.js";
 import {
+  churnedLines,
   diffMayBeIncomplete,
   emptyUsage,
   isTrivialRun,
-  netDiffLines,
   type Run,
   unrecordedWrites,
 } from "../src/model.js";
@@ -150,7 +150,7 @@ describe("shell-mediated diffs", () => {
         .bash("tar -xzf vendor.tar.gz -C ./out", "x out/a.js\nx out/b.js")
         .say("Unpacked."),
     );
-    assert.equal(netDiffLines(run), 0, "no edit-tool changes recorded");
+    assert.equal(churnedLines(run), 0, "no edit-tool changes recorded");
     assert.equal(diffMayBeIncomplete(run), true);
     assert.equal(unrecordedWrites(run).length, 1);
   });
@@ -375,7 +375,7 @@ describe("opencode importer", () => {
         .bash("./scripts/migrate.sh > out.log", "done")
         .say("Applied."),
     );
-    assert.equal(netDiffLines(run), 150, "session summary fills the gap");
+    assert.equal(churnedLines(run), 150, "session summary fills the gap");
     assert.notEqual(analyze(run).label, "wasteful");
   });
 
@@ -388,7 +388,7 @@ describe("opencode importer", () => {
         .say("Done."),
     );
     assert.equal(run.fileEdits.length, 1);
-    assert.ok(netDiffLines(run) < 10, "recorded edits win over the summary");
+    assert.ok(churnedLines(run) < 10, "recorded edits win over the summary");
   });
 
   it("produces a deterministic postmortem", () => {
