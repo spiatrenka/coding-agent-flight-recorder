@@ -130,11 +130,59 @@ describe("ingest bookkeeping", () => {
   it("tracks a file as changed until it is noted, and again when it grows", () => {
     const s = fresh();
     try {
-      assert.equal(s.isUnchanged("/x/a.jsonl", 100, 10), false);
+      assert.equal(s.isUnchanged("/x/a.jsonl", 100, 10, "1.2.0"), false);
       s.noteIngest("/x/a.jsonl", 100, 10, 1);
-      assert.equal(s.isUnchanged("/x/a.jsonl", 100, 10), true);
-      assert.equal(s.isUnchanged("/x/a.jsonl", 100, 11), false, "a size change invalidates");
-      assert.equal(s.isUnchanged("/x/a.jsonl", 101, 10), false, "an mtime change invalidates");
+      assert.equal(s.isUnchanged("/x/a.jsonl", 100, 10, "1.2.0"), true);
+      assert.equal(
+        s.isUnchanged("/x/a.jsonl", 100, 11, "1.2.0"),
+        false,
+        "a size change invalidates",
+      );
+      assert.equal(
+        s.isUnchanged("/x/a.jsonl", 101, 10, "1.2.0"),
+        false,
+        "an mtime change invalidates",
+      );
+    } finally {
+      s.close();
+    }
+  });
+
+  it("treats a file as changed when its stored runs were graded by another analyzer", () => {
+    // The upgrade path. Without this, a release that changes grading leaves every
+    // existing store on the old verdicts, because the transcript itself is identical.
+    const s = fresh();
+    try {
+      const path = fixtureProductive().writeTo(join(root, "regrade"));
+      const run = new ClaudeCodeSource().load(path)[0];
+      assert.ok(run);
+      const a = analyze(run);
+      s.upsert(run, a, generate(run, a));
+
+      const file = run.sourceFile;
+      assert.ok(file);
+      s.noteIngest(file, 100, 10, 1);
+
+      assert.equal(
+        s.isUnchanged(file, 100, 10, a.analyzerVersion),
+        true,
+        "same analyzer, same file: nothing to redo",
+      );
+      assert.equal(
+        s.isUnchanged(file, 100, 10, "99.0.0"),
+        false,
+        "a newer analyzer must force a regrade",
+      );
+    } finally {
+      s.close();
+    }
+  });
+
+  it("keeps skipping a file that produced no runs, whatever the analyzer version", () => {
+    const s = fresh();
+    try {
+      s.noteIngest("/x/empty.jsonl", 100, 10, 0);
+      assert.equal(s.isUnchanged("/x/empty.jsonl", 100, 10, "99.0.0"), true);
     } finally {
       s.close();
     }

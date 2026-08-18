@@ -238,11 +238,33 @@ export class Store {
       .run(path, mtime, size, runsFound, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
   }
 
-  isUnchanged(path: string, mtime: number, size: number): boolean {
+  /**
+   * True when re-reading this file would produce nothing new: the file itself has
+   * not changed *and* the runs already stored from it were graded by the analyzer
+   * we are running now.
+   *
+   * The analyzer half matters because a release that changes grading changes the
+   * answer for a transcript that has not changed at all. Comparing only mtime and
+   * size meant an upgrade silently kept the old verdicts and left the CLI telling
+   * the user to fix it by hand with `--force`. The version lives on `runs` already,
+   * so this needs no column of its own — a file whose stored runs disagree with the
+   * current version is treated as changed and re-analysed.
+   *
+   * A file that produced no runs has nothing to regrade, so it stays skipped.
+   */
+  isUnchanged(path: string, mtime: number, size: number, analyzerVersion: string): boolean {
     const row = this.db.prepare("SELECT mtime, size FROM ingest_log WHERE path=?").get(path) as
       | { mtime: number; size: number }
       | undefined;
-    return Boolean(row && Math.abs(row.mtime - mtime) < 0.001 && row.size === size);
+    if (!row || Math.abs(row.mtime - mtime) >= 0.001 || row.size !== size) return false;
+
+    const stale = this.db
+      .prepare(
+        `SELECT COUNT(*) n FROM runs
+          WHERE source_file = ? AND COALESCE(analyzer_version,'') <> ?`,
+      )
+      .get(path, analyzerVersion) as { n: number } | undefined;
+    return (stale?.n ?? 0) === 0;
   }
 
   // -- reads -------------------------------------------------------------
@@ -276,6 +298,32 @@ export class Store {
     q += " ORDER BY COALESCE(started_at,'') DESC LIMIT ?";
     args.push(opts.limit ?? 200);
     return this.db.prepare(q).all(...args) as unknown as RunSummary[];
+  }
+
+  /**
+   * Every run id with the analyzer version that graded it, oldest first and with no
+   * limit — `listRuns` caps at 200 and is for display.
+   *
+   * This exists because `ingest` can only regrade transcripts that are still on
+   * disk, and Claude Code purges them after about thirty days. The stored trace is
+   * then the only copy, so regrading has to be able to work from the store alone.
+   */
+  runsToRegrade(analyzerVersion: string | null): string[] {
+    // `null` means every run. A version comparison cannot express that: a row whose
+    // analyzer_version is NULL collapses to '' under COALESCE and would be excluded
+    // by any sentinel string, which is exactly the oldest data in the store.
+    const rows = (
+      analyzerVersion === null
+        ? this.db.prepare(`SELECT run_id FROM runs ORDER BY COALESCE(started_at,'') ASC`).all()
+        : this.db
+            .prepare(
+              `SELECT run_id FROM runs
+                WHERE COALESCE(analyzer_version,'') <> ?
+                ORDER BY COALESCE(started_at,'') ASC`,
+            )
+            .all(analyzerVersion)
+    ) as Array<{ run_id: string }>;
+    return rows.map((r) => r.run_id);
   }
 
   getRun(runId: string): StoredRun | null {

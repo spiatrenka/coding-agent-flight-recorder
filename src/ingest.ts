@@ -1,6 +1,6 @@
 /** Discover transcripts → parse → analyse → postmortem → store. */
 
-import { analyze } from "./analyze/index.js";
+import { ANALYZER_VERSION, analyze } from "./analyze/index.js";
 import type { Run } from "./model.js";
 import { generate } from "./postmortem.js";
 import { availableSources, get as getSource } from "./sources/index.js";
@@ -53,7 +53,7 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
     for (const item of found) {
       if (cutoff !== null && item.mtime < cutoff) continue;
       res.filesSeen++;
-      if (!opts.force && store.isUnchanged(item.path, item.mtime, item.size)) {
+      if (!opts.force && store.isUnchanged(item.path, item.mtime, item.size, ANALYZER_VERSION)) {
         res.filesSkipped++;
         continue;
       }

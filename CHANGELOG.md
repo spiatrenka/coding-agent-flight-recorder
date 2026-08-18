@@ -12,6 +12,47 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+### Changed
+
+- **Elapsed time no longer decides a verdict.** Analyzer **1.2.0**. Rule 3 tested
+  `duration ≥ 300s` and is evaluated before the rule that assigns `unchanged`, which
+  gave that label a hard five-minute ceiling — measured over a real 509-run corpus,
+  **0 of 54** no-diff runs longer than five minutes had ever received it. A thorough
+  code review takes longer than five minutes by definition, so the long half of
+  exactly the category `unchanged` exists for was being called waste.
+
+  What replaced it is the evidence that was already there: repetition or spend. On
+  the same corpus this relabelled **22** runs `wasteful` → `unchanged` and left **31**
+  long no-diff runs still `wasteful`, because those had cost or a loop finding behind
+  them. Runs under five minutes were untouched. `wasteful` went 24.4% → 20.0% and
+  `unchanged` 42.8% → 47.2%.
+
+  The fixture set already contained the counter-example: `longNoDiff` reads six files,
+  correctly identifies an unindexed sequential scan and proposes the index — graded
+  `wasteful` for taking nineteen minutes. Two other tests asserted the old behaviour
+  while their own comments argued for the new one.
+
+- The `no-diff-brief` label rule is now `no-diff-no-signal`, since it no longer tests
+  brevity. Stored runs graded by an older analyzer keep the old id; the dashboard
+  falls back to showing it verbatim rather than breaking.
+
+### Added
+
+- **`flightrec regrade`** — re-grade stored runs from their stored traces, without
+  re-reading transcripts. This is what makes an analyzer change reach an existing
+  archive: Claude Code purges transcripts after about thirty days, so for most of a
+  real store the stored trace is the only remaining copy and `ingest` has nothing to
+  re-read. `--all` regrades every run rather than only out-of-date ones.
+
+### Fixed
+
+- **An analyzer upgrade no longer leaves stale verdicts behind.** `isUnchanged()`
+  compared only path, mtime and size, so a release that changed grading skipped every
+  unchanged transcript and kept the old labels — and the CLI's response was to tell
+  the user to re-run with `--force` themselves. It now also requires the stored runs
+  from that file to have been graded by the running analyzer. Needs no new column:
+  the version is already on `runs`.
+
 ## [0.1.0] - 2026-08-17
 
 First public release.

@@ -71,6 +71,7 @@ npm run serve
 | `npm run serve` | dashboard on loopback (alias: `npm start`) | ✓ |
 | `npm run list` | list analysed runs | |
 | `npm run report -- <run-id>` | print one postmortem | |
+| `npm run regrade` | re-grade stored runs from stored traces after an upgrade | |
 | `npm run stats` | aggregate stats | |
 | `npm run corpus -- --db <path>` | audit what the detectors did across a whole store | |
 | `npm run flightrec -- <cmd>` | escape hatch for any CLI command | |
@@ -146,15 +147,19 @@ Type-level conventions worth knowing while reading:
 | **productive** | files changed and every check that ran ended green |
 | **unchanged** | the repository was not modified — a question, a review, an investigation |
 | **questionable** | something changed, but nothing proves it works |
-| **wasteful** | time, money or repeated attempts went in, repository came out unchanged |
+| **wasteful** | money or repeated attempts went in, repository came out unchanged |
 | **risky** | sensitive files or dangerous commands involved |
 
 `risky` overrides everything else. A run that wrote to `.env` is not "productive" no matter how
 good the diff was.
 
 `unchanged` is deliberately quiet, and deliberately not a criticism: on a real corpus it is around
-40% of runs, because most sessions are conversations. Lumping those in with unverified diffs — as an
+47% of runs, because most sessions are conversations. Lumping those in with unverified diffs — as an
 earlier version did — made a single label 60% of everything and told you nothing.
+
+**Elapsed time does not decide a verdict.** It used to, and the effect was that `unchanged` became
+unreachable above five minutes — 0 of 54 such runs in a real corpus ever got it — so every code
+review long enough to be thorough was called waste. Repetition and spend are the evidence now.
 
 **Every rule, in evaluation order: [`docs/GRADING.md`](docs/GRADING.md).** The dashboard will also
 tell you: click the verdict badge and it names the rule that fired and what would change it.
@@ -181,7 +186,7 @@ you cannot see by scrolling a transcript.
 | blast radius | many files or many lines relative to the request, unverified |
 | unbacked claim | "all tests pass" with no passing test in the transcript |
 | never verified | files changed and no test, build or lint ran |
-| duration / cost with no diff | time or money spent, repository unchanged |
+| duration / cost with no diff | time or money spent, repository unchanged — reported as a finding, but only cost affects the verdict |
 
 **Diffs the trace cannot see.** A diff assembled from edit-tool calls is blind to everything the
 agent does through the shell — `tar -xzf`, a heredoc, `sed -i`, a redirect. Commands are classified
@@ -227,7 +232,7 @@ is what you actually want, use the thing that does it well:
 
 Determinism is the feature. The same run always produces the same verdict, so:
 
-- the detectors are regression-testable — 203 tests across 12 files, each pinned to a fixture or to
+- the detectors are regression-testable — 266 tests across 13 files, each pinned to a fixture or to
   a defect that actually occurred,
 - nothing is invented — every sentence traces to a field in the trace,
 - it costs nothing to run and works offline,
@@ -317,7 +322,7 @@ src/
     opencodeFixtures.ts synthetic OpenCode storage tree
     opencodeDemo.ts    demo sessions covering the OpenCode-only paths
     index.ts           seedDemo — what `flightrec demo` runs
-test/                  12 files, 203 tests (node:test)
+test/                  13 files, 266 tests (node:test)
   detectors.test.ts    the core regression suite
   improvements.test.ts importer + analyzer regressions
   findings.test.ts     the finding ids nothing else asserts

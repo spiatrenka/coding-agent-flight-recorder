@@ -3,10 +3,11 @@
 
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { ANALYZER_VERSION } from "./analyze/index.js";
+import { ANALYZER_VERSION, analyze } from "./analyze/index.js";
 import { auditCorpus, formatCorpusReport } from "./corpus.js";
 import { ingest } from "./ingest.js";
 import type { Label } from "./model.js";
+import { generate } from "./postmortem.js";
 import { serve } from "./server.js";
 import { availableSources } from "./sources/index.js";
 import { defaultDbPath, Store } from "./store.js";
@@ -175,8 +176,64 @@ function staleNotice(store: Store): void {
   const which = stale.map(([v, count]) => `${count} by ${v}`).join(", ");
   console.log(
     `\n${n} run(s) were graded by an older analyzer (${which}); this build is ` +
-      `${ANALYZER_VERSION}. Re-run \`flightrec ingest --force\` to regrade them.`,
+      `${ANALYZER_VERSION}. Run \`flightrec regrade\` to bring them up to date — it ` +
+      `works from the stored traces, so it does not need the original transcripts.`,
   );
+}
+
+/**
+ * Re-grade stored runs from their stored traces, without re-reading transcripts.
+ *
+ * `ingest` regrades on an analyzer change, but only for files still on disk, and
+ * Claude Code purges transcripts after about thirty days. For an archive older than
+ * that the stored trace is the only copy — so without this a store keeps verdicts
+ * from an analyzer that no longer exists and nothing can move them.
+ *
+ * Grading is deterministic, so this rewrites the analysis and the postmortem while
+ * leaving the trace exactly as ingested.
+ */
+function cmdRegrade(args: Args): number {
+  const store = new Store(args.db);
+  const ids = store.runsToRegrade(args.flags.has("all") ? null : ANALYZER_VERSION);
+
+  if (!ids.length) {
+    console.log(`nothing to regrade — every stored run is already at ${ANALYZER_VERSION}`);
+    store.close();
+    return 0;
+  }
+
+  const moves = new Map<string, number>();
+  let done = 0;
+  const errors: string[] = [];
+  for (const id of ids) {
+    const stored = store.getRun(id);
+    if (!stored) continue;
+    try {
+      const a = analyze(stored.trace);
+      store.upsert(stored.trace, a, generate(stored.trace, a));
+      done++;
+      if (stored.label !== a.label) {
+        const key = `${stored.label} → ${a.label}`;
+        moves.set(key, (moves.get(key) ?? 0) + 1);
+      }
+    } catch (err) {
+      errors.push(`${id}: ${String(err)}`);
+    }
+  }
+
+  console.log(`regraded ${done} run(s) with analyzer ${ANALYZER_VERSION}`);
+  if (moves.size) {
+    console.log("\nverdict changes:");
+    for (const [k, n] of [...moves].sort((x, y) => y[1] - x[1])) {
+      console.log(`  ${String(n).padStart(5)}  ${k}`);
+    }
+  } else {
+    console.log("no verdict changed");
+  }
+  for (const e of errors.slice(0, 10)) console.error(`  ! ${e}`);
+  if (errors.length > 10) console.error(`  ! …and ${errors.length - 10} more`);
+  store.close();
+  return errors.length ? 1 : 0;
 }
 
 function cmdReport(args: Args): number {
@@ -257,6 +314,9 @@ Commands:
     --all               include trivial runs (no tool calls, no diff, seconds long)
   report <run-id>       print a run's postmortem
     --json              full trace + analysis instead of markdown
+  regrade               re-grade stored runs from their stored traces, so an
+                        analyzer upgrade reaches runs whose transcripts are gone
+    --all               regrade every run, not only the out-of-date ones
   serve                 open the local dashboard
     --port <n>          default 8787
     --ingest            ingest before serving
@@ -276,6 +336,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return cmdIngest(args);
     case "list":
       return cmdList(args);
+    case "regrade":
+      return cmdRegrade(args);
     case "report":
       return cmdReport(args);
     case "serve":
