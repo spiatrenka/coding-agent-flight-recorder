@@ -95,7 +95,13 @@ describe("verdicts", () => {
     ["wasteful", "wasteful"],
     ["risky", "risky"],
     ["unverifiedClaim", "questionable"],
-    ["longNoDiff", "wasteful"],
+    // A 19-minute investigation that read six files and correctly identified an
+    // unindexed sequential scan. It changed nothing, which is the expected outcome
+    // for the question asked. Analyzer 1.1.0 called it `wasteful` purely because it
+    // ran over five minutes — see the duration note in `assignLabel`.
+    ["longNoDiff", "unchanged"],
+    // Still `wasteful`: same no-diff shape, but real money went in.
+    ["expensiveNoDiff", "wasteful"],
     // The no-change case. Before `unchanged` existed this shared `questionable`
     // with unverifiedClaim above — two opposite situations under one label.
     ["question", "unchanged"],
@@ -105,6 +111,22 @@ describe("verdicts", () => {
       assert.equal(analyzed(fixture).a.label, want);
     });
   }
+
+  it("does not let elapsed time alone decide a verdict", () => {
+    // The regression this pins: `unchanged` was unreachable above five minutes,
+    // because rule 3 tested duration and ran before the rule that assigns it.
+    const { run, a } = analyzed("longNoDiff");
+    assert.ok((run.durationS ?? 0) > 300, "fixture must be long enough to matter");
+    assert.equal(run.usage.costUsd, null, "and cheap enough that only duration could fire");
+    assert.equal(a.label, "unchanged");
+    assert.equal(a.labelRule, "no-diff-no-signal");
+  });
+
+  it("still calls a no-diff run wasteful when money went in", () => {
+    const { a } = analyzed("expensiveNoDiff");
+    assert.equal(a.labelRule, "no-diff-spent");
+    assert.doesNotMatch(a.labelReason, /minutes/, "duration is no longer offered as the reason");
+  });
 });
 
 describe("loop detection", () => {

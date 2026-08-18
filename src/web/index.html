@@ -681,8 +681,8 @@ const LABEL_NEXT = {
   "changed-unverified": "A passing test, build or lint would make this <b>productive</b>.",
   "changed-failing": "Getting the failing check green would make this <b>productive</b>.",
   "changed-looping-unverified": "A passing check would lift this to <b>questionable</b>, and removing the repetition would clear the loop findings.",
-  "no-diff-brief": "Nothing to change — no edits were attempted.",
-  "no-diff-spent": "An applied edit would move this out of <b>wasteful</b>; as it stands the run spent something and left nothing behind.",
+  "no-diff-no-signal": "Nothing to change — no edits were attempted, and nothing suggests the run was trying to. Elapsed time alone does not make this wasteful.",
+  "no-diff-spent": "An applied edit would move this out of <b>wasteful</b>; as it stands the run spent money or repeated itself and left nothing behind.",
   "no-diff-opaque": "The shell wrote files the transcript cannot see. Check the working tree, or use an edit tool so the diff is recorded.",
   "risk-override": "Nothing about the diff can clear this. Address the sensitive or destructive action, or arm a rule so it cannot happen unsupervised.",
   fallback: "The signals disagree; read the findings.",
@@ -691,12 +691,12 @@ const LABEL_NEXT = {
 const RULE_LABEL = {
   "risk-override": "a sensitive or destructive finding",
   "no-diff-opaque": "no recorded diff, but shell writes are possible",
-  "no-diff-spent": "no diff, after real time, money or repetition",
+  "no-diff-spent": "no diff, after real money or repetition",
   "changed-looping-unverified": "a diff, repetition, and no passing check",
   "changed-verified": "a diff, and every check green",
   "changed-failing": "a diff, with a check still failing",
   "changed-unverified": "a diff, and nothing run to check it",
-  "no-diff-brief": "no diff, briefly, with no repetition",
+  "no-diff-no-signal": "no diff, no repetition, nothing spent",
   fallback: "no rule matched cleanly",
 };
 

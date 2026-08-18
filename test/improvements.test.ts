@@ -168,7 +168,12 @@ describe("shell-mediated diffs", () => {
     assert.match(a.labelReason, /shell command/);
   });
 
-  it("still calls a genuinely empty run wasteful", () => {
+  it("calls a slow investigation unchanged, not wasteful", () => {
+    // Inverted in analyzer 1.2.0. This run answered the question it was asked — it
+    // located the N+1 — and changed nothing, which is what `unchanged` is for. It
+    // was previously `wasteful` for the sole reason that it took 25 minutes.
+    // `diffMayBeIncomplete` still matters here: grep is not a write, so this must
+    // not be routed through the opaque-diff rule either.
     const run = loadOnly(
       new OcBuilder(storage, { sessionId: "ses_emptyrun00000000000001" })
         .user("Why is the settlement job slow?")
@@ -179,7 +184,8 @@ describe("shell-mediated diffs", () => {
     );
     const a = analyze(run);
     assert.equal(diffMayBeIncomplete(run), false, "grep is not a write");
-    assert.equal(a.label, "wasteful", a.labelReason);
+    assert.equal(a.label, "unchanged", a.labelReason);
+    assert.equal(a.labelRule, "no-diff-no-signal");
   });
 
   it("names the opaque commands in the postmortem", () => {

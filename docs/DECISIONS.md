@@ -5,6 +5,60 @@ otherwise be re-litigated.
 
 ---
 
+## 2026-08-18 — Elapsed time is not evidence of waste
+
+**Decision.** Duration does not decide a verdict. Analyzer 1.2.0 removed the
+`duration ≥ 300s` arm from the cascade rule that assigns `wasteful`; repetition
+and spend remain.
+
+**Context.** The rule was evaluated before the rule that assigns `unchanged`, so
+`unchanged` had a five-minute ceiling nobody had stated. Measured over the
+509-run store: **0 of 54** no-diff runs longer than five minutes had ever
+received it. Every run in the 5–15, 15–60 and 60+ minute buckets was `wasteful`,
+without exception.
+
+That collides with what the label is for. `README.md` describes `unchanged` as
+"a question, a review, an investigation… deliberately not a criticism" — and a
+review thorough enough to be worth having takes longer than five minutes. The
+long half of the category was being called waste by construction.
+
+**How it was found.** Not by the test suite, which was green, and not by
+reasoning about the rules — by bucketing real verdicts against duration and
+noticing a zero where there should have been a spread. The same method as the
+2026-08-16 corpus entry below.
+
+**The fixtures already disagreed with the rule.** `fixtureLongNoDiff` asks why a
+job is slow, reads six files, and correctly identifies an unindexed sequential
+scan — graded `wasteful` for taking nineteen minutes. Two tests asserted that
+behaviour while their own comments argued against it: one said "`unchanged` is
+for runs that were not trying to change anything", which described the fixture it
+was failing. `fixtureQuestion` exists only because the long fixture could not
+reach `unchanged`, and its comment said so.
+
+**Also worth recording:** the *detector* was honest the whole time.
+`risk.duration_no_diff` says "that is sometimes correct — investigation, code
+reading, a question answered". Only the verdict rule overstated it. A detector
+and a verdict rule reading the same field can disagree, and nothing checks that
+they don't.
+
+**Consequences.**
+
+- 22 runs moved `wasteful` → `unchanged`; 31 long no-diff runs stayed `wasteful`
+  because cost or repetition backed them. Runs under five minutes: unaffected.
+  `wasteful` 24.4% → 20.0%, `unchanged` 42.8% → 47.2%.
+- The `no-diff-brief` label rule is `no-diff-no-signal`; it no longer tests
+  brevity, and a rule whose name outruns its condition is the defect being fixed.
+- **A hole this opens, stated rather than discovered later:** unknown cost counts
+  as 0, so a long no-diff run on an unpriced model with no repetition is now
+  `unchanged` whatever it really cost. Tokens are recorded even when price is
+  not, so a token-based signal is the way to close it. Choosing that over
+  asserting waste from elapsed time is deliberate.
+- `flightrec regrade` exists because of this change. A store cannot be regraded
+  by `ingest` once its transcripts are purged, and at the time of this change 35
+  of the 509 stored runs' source files still existed.
+
+---
+
 ## 2026-08-16 — The Python port is retired
 
 **Decision.** TypeScript is the single implementation. The Python port is no
