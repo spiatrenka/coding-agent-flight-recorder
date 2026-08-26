@@ -21,14 +21,21 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # 24.x is the engines floor. node:sqlite landed in 22.5 but stayed
-        # behind --experimental-sqlite until 23.4, so a 22.x leg cannot run this
-        # tool without a flag its own bin script cannot set. The floor leg is
-        # here to keep that honest.
-        node: ["24.x", "26.x"]
+        # 22.13.0 is the engines floor. node:sqlite landed in 22.5 behind
+        # --experimental-sqlite, a flag a bin script cannot set for its own
+        # process — but it was unflagged in 23.4.0 and backported to the 22 LTS
+        # line in 22.13.0. That is the oldest version running this tool as a
+        # plain CLI; below it you get ERR_UNKNOWN_BUILTIN_MODULE at import.
+        #
+        # The floor leg is pinned to an EXACT version, never "22.x". setup-node
+        # resolves a .x spec to the newest matching release, so the previous
+        # "24.x" leg tested whatever 24 shipped last week and never once tested
+        # >=24.0.0. A floating spec cannot keep `engines` honest. When
+        # engines.node moves, move this literal with it.
+        node: ["22.13.0", "24.x", "26.x"]
         include:
           - os: macos-latest
-            node: "24.x"
+            node: "22.13.0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -50,8 +57,10 @@ jobs:
           node-version: 24.x
           cache: npm
       - run: npm ci
-      # Coverage thresholds landed after 22.5, so this is deliberately a single
-      # modern leg rather than part of the version matrix.
+      # Coverage thresholds landed in 22.8, which the 22.13 floor now clears —
+      # so the original reason for isolating this job is gone. It stays a single
+      # leg because the matrix above already covers versions and running the
+      # thresholds three times proves nothing extra.
       - run: npm run coverage
       - run: npm run coverage:lcov
         if: always()

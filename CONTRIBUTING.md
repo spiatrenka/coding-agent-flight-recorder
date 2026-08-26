@@ -44,7 +44,7 @@ call site rather than asserted away. The only `as` casts in the codebase are on
 
 ## Setting up
 
-Node 24+ — see [the note on the floor](#why-node-24) below.
+Node 22.13+ — see [the note on the floor](#why-node-2213) below.
 
 ```bash
 npm install        # builds via prepare
@@ -192,14 +192,18 @@ again needs new evidence, not a new argument:
 
 ---
 
-## Why Node 24
+## Why Node 22.13
 
-`node:sqlite` landed in Node 22.5 but stayed behind `--experimental-sqlite`
-until 23.4, and a `bin` script cannot set that flag for its own process. 24 is
-the active LTS and the lowest version this actually runs on. `.nvmrc` pins the
-floor rather than the latest, deliberately: the largest external risk to this
-project is `node:sqlite` API drift, so develop against the oldest version we
-support.
+`node:sqlite` landed in Node 22.5 behind `--experimental-sqlite`, and a `bin`
+script cannot set that flag for its own process. The flag was dropped in 23.4.0
+and backported to the 22 LTS line in **22.13.0**, so 22.13 is the lowest version
+that runs this tool as a plain CLI. Below it you get `ERR_UNKNOWN_BUILTIN_MODULE`
+at import time.
+
+`.nvmrc` pins the floor rather than the latest, deliberately: the largest
+external risk to this project is `node:sqlite` API drift, so develop against the
+oldest version we support. The CI matrix keeps a leg on the floor for the same
+reason — if `engines.node` moves, that leg moves with it.
 
 ---
 
