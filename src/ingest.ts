@@ -7,6 +7,25 @@ import { availableSources, get as getSource } from "./sources/index.js";
 import type { DiscoveredFile } from "./sources/types.js";
 import type { Store } from "./store.js";
 
+/**
+ * What one source contributed to a scan, and how fresh it looks.
+ *
+ * Added because the OpenCode importer went silent for six months without
+ * anything being wrong: the source was available, discovery succeeded, and it
+ * returned the same frozen files every time. A scan that reports only
+ * "0 new run(s)" cannot distinguish "you have been idle" from "this importer
+ * stopped working in February".
+ */
+export interface SourceReport {
+  source: string;
+  itemsSeen: number;
+  /** ISO date of the newest item discovered, not of the newest item stored. */
+  newestItem: string | null;
+  /** Days between the newest discovered item and now. */
+  staleDays: number | null;
+  notes: string[];
+}
+
 export interface IngestResult {
   filesSeen: number;
   filesParsed: number;
@@ -23,7 +42,11 @@ export interface IngestResult {
   errors: string[];
   elapsedS: number;
   sourcesUsed: string[];
+  sourceReports: SourceReport[];
 }
+
+/** A source whose newest data is older than this is worth remarking on. */
+const STALE_SOURCE_DAYS = 30;
 
 export interface IngestOptions {
   sourceNames?: string[];
@@ -44,19 +67,53 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
     errors: [],
     elapsedS: 0,
     sourcesUsed: [],
+    sourceReports: [],
   };
   const cutoff = opts.sinceDays ? Date.now() / 1000 - opts.sinceDays * 86400 : null;
   const active = opts.sourceNames?.length ? opts.sourceNames.map(getSource) : availableSources();
   res.sourcesUsed = active.map((s) => s.name);
 
   for (const src of active) {
+    try {
+      scanSource(src, store, opts, cutoff, res);
+    } finally {
+      src.close?.();
+    }
+  }
+
+  res.elapsedS = Math.round((Date.now() - started) / 10) / 100;
+  return res;
+}
+
+function scanSource(
+  src: ReturnType<typeof getSource>,
+  store: Store,
+  opts: IngestOptions,
+  cutoff: number | null,
+  res: IngestResult,
+): void {
+  {
     let found: DiscoveredFile[];
     try {
       found = src.discover();
     } catch (err) {
       res.errors.push(`${src.name}: discovery failed: ${String(err)}`);
-      continue;
+      return;
     }
+
+    // Freshness is measured over everything discovered, before --limit and
+    // --since-days narrow it: the question is "is this source still alive",
+    // and answering it from a filtered view would be circular.
+    const newestMtime = found.reduce((max, f) => Math.max(max, f.mtime), 0);
+    const newestItem = newestMtime > 0 ? new Date(newestMtime * 1000).toISOString() : null;
+    res.sourceReports.push({
+      source: src.name,
+      itemsSeen: found.length,
+      newestItem,
+      staleDays: newestMtime > 0 ? Math.floor(Date.now() / 1000 - newestMtime) / 86400 : null,
+      notes: src.notes?.() ?? [],
+    });
+
     if (opts.limit) found = found.slice(0, opts.limit);
 
     for (const item of found) {
@@ -93,7 +150,21 @@ export function ingest(store: Store, opts: IngestOptions = {}): IngestResult {
       opts.onProgress?.(`  ${item.path} → ${runs.length} run(s)`);
     }
   }
+}
 
-  res.elapsedS = Math.round((Date.now() - started) / 10) / 100;
-  return res;
+/**
+ * Sources that look like they have stopped producing data.
+ *
+ * Deliberately generic rather than a check for the 2026-02 OpenCode migration:
+ * the failure is "a source went quiet and nothing said so", and the next one
+ * will have a different cause. Only reported for sources the store already has
+ * runs from, so a machine that simply does not use an agent stays silent.
+ */
+export function staleSources(
+  res: IngestResult,
+  hasStoredRuns: (source: string) => boolean,
+): SourceReport[] {
+  return res.sourceReports.filter(
+    (r) => r.staleDays !== null && r.staleDays > STALE_SOURCE_DAYS && hasStoredRuns(r.source),
+  );
 }
