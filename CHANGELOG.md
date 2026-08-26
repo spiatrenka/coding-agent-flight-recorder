@@ -12,6 +12,122 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-26
+
+### Changed
+
+- **The Node floor is now 22.13, down from 24.** `engines.node` is `>=22.13.0`.
+  The 0.2.0 note below claims `node:sqlite` "stayed behind `--experimental-sqlite`
+  until 23.4", so "any Node 22" fails with `ERR_UNKNOWN_BUILTIN_MODULE`. That was
+  wrong when it was written, not overtaken since: the unflag shipped in 23.4.0 on
+  2024-12-10 and was **backported to the 22 LTS line in 22.13.0 on 2025-01-06**.
+  Verified on the floor itself: 22.13.0 imports the module unflagged and passes
+  the whole suite, and the packaged tarball installs and runs there with no
+  `EBADENGINE`. 21.1.0 and 20.18.1 still throw, so the floor is real — just
+  lower than it was.
+
+  This is a user-facing fix rather than housekeeping. `>=24.0.0` made npm emit
+  `EBADENGINE`, a hard install failure under pnpm or `engine-strict`, and Node 22
+  is the LTS most people run — so the declaration was turning away users to guard
+  against a failure that does not occur on the versions it was turning away.
+
+- **CI floor legs are pinned exactly.** The matrix ran `24.x`, which resolves to
+  the newest 24 release, so the leg that existed to prove `engines.node` was
+  honest had never actually tested `>=24.0.0`. The new leg is the literal
+  `22.13.0`, on Linux and macOS, and `release.yml` runs the pre-publish
+  `npm run check` on it too.
+
+- `@types/node` moves to `^22.20.1`, tracking the floor as the project requires.
+  With 24-era types, code using a Node 24-only API would typecheck and then fail
+  at runtime on the floor.
+
+### Added
+
+- **`flightrec feedback [run-id]`** — a summary of one run short enough to paste
+  into a chat window and safe enough to paste without reading it first. With no
+  id it takes the newest run and says which one it picked.
+
+  This exists because the most valuable report this project can get, "that
+  verdict is wrong", was also the most awkward to send. The only thing to hand
+  someone was `flightrec report --json`, which is the full record: prompts, file
+  contents, absolute paths, commands. Asking a colleague to redact that by hand
+  is asking them not to bother.
+
+  **The boundary is an allowlist, not the redactor.** `redact()` finds
+  credentials and is deliberately conservative — it does not strip a goal, a
+  branch name or a repository path, and should not. So nothing in the summary
+  copies a free-text field; every value is an enum, a number, a version string
+  or a detector name. `redact()` still runs over the rendered output, where it
+  should always be a no-op.
+
+  Two tests carry that claim and fail differently on purpose: a canary run whose
+  goal, branch, paths, commands, output and MCP server name are improbable
+  tokens that must not appear in either the rendered or `--json` form; and a
+  Proxy that throws if a forbidden field is *read at all*, so adding
+  `finding.title` to the summary fails even when that title is benign. Finding
+  titles are the specific trap — `loops.ts` builds them as ``​`<the actual shell
+  command>` failed 3×``.
+
+### Fixed
+
+- **The OpenCode importer had been blind since 2026-02-15.** OpenCode migrated
+  its session store from a JSON directory to SQLite (`opencode.db`) and left the
+  old `storage/` tree in place. `available()` was a single `statSync` on
+  `storage/session`, which still existed — so the source reported itself healthy,
+  discovery returned the same frozen files every time, and every `ingest` since
+  February said "0 new" and meant "broken". On the store this was found against
+  that is **1,072 missing sessions**, 159 of them from this month alone.
+
+  The importer now reads `opencode.db` and prefers it, falling back to the
+  directory for installs old enough to still use one. Both backends share every
+  mapping function, so a detector change cannot apply to one and not the other —
+  a test asserts the two produce byte-identical `Run`s.
+
+  Re-ingesting is safe and needs no flags: session ids survived the migration and
+  `makeRunId` is deterministic, so existing runs are updated in place rather than
+  duplicated. Expect the run count to jump — 449 to 1,877 here, in 14 seconds.
+
+  Two traps in the migrated data, both now covered by tests. `part.time_created`
+  and `message.time_updated` were **collapsed onto the migration instant** for
+  every pre-existing row, so ordering or freshness taken from either would
+  scramble six months of timelines; ordering comes from the id, which was checked
+  against time order across 41,347 messages and 25,573 parts with zero
+  inversions. And the connection is strictly read-only: this is live agent data,
+  frequently with the agent running.
+
+- **A source going quiet is now loud.** `ingest` reports, per source, how old the
+  newest data it can see is; when a source the store already has runs from has
+  seen nothing for 30 days, it says so and names the two likely causes. This is
+  deliberately generic — the specific bug above is fixed, and the next importer
+  to go stale will have a different cause. Against the February state it prints:
+  *"the newest opencode data on this machine is 192 days old (2026-02-15), but
+  this store already has opencode runs."*
+
+  A narrower tripwire watches for the migration that is **already staged**:
+  `opencode.db` ships an empty `session_message` table with its indexes built.
+  When OpenCode starts writing there, `message` freezes and this importer would
+  go quiet again — with no leftover directory to blame.
+
+- **The wrong-verdict issue template could not express `unchanged`** — 47% of
+  real runs. Both dropdowns listed four of the five verdicts, so the most common
+  grade in a real store could not be reported as wrong. `LABELS` is now exported
+  from `src/model.ts` as the single source of truth and a test compares the two.
+- The same template still claimed `loop.revert` and `loop.stall_tail` "have
+  never fired on a real corpus at all". The 0.2.0 changelog records them firing
+  on 3 and 42 runs; the current store has 4 and 48. A reporter who checks that
+  claim learns the project is unmaintained, so it is gone and a test forbids it.
+- The bug-report template's command dropdown was missing `regrade`, `rm`,
+  `corpus` and `feedback`. A test now reads the dispatch switch and asserts every
+  command it finds is both offered there and documented in `USAGE`.
+- The README had no way to report a wrong verdict — the only invitation on the
+  page was a security line near the bottom.
+
+- The lockfile still said `0.1.0` after the 0.2.0 release; regenerating it for
+  the `engines` change corrected that too.
+
+- The README no longer says `node:sqlite` is "experimental in Node 24" — it
+  became a release candidate in 24.15.
+
 ## [0.2.0] - 2026-08-18
 
 ### Changed
@@ -237,6 +353,7 @@ passing throughout. `docs/DECISIONS.md` records the pattern.
   484 real runs they fire on 3 and 42 runs respectively. Earlier notes calling
   them unvalidated were written against a 25-transcript sample.
 
-[Unreleased]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/spiatrenka/coding-agent-flight-recorder/releases/tag/v0.1.0

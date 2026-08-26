@@ -5,6 +5,150 @@ otherwise be re-litigated.
 
 ---
 
+## 2026-08-26 — One OpenCode source, two backends, and a check that tests for data
+
+**Decision.** `OpenCodeSource` reads `opencode.db` and prefers it, falling back
+to the legacy `storage/` directory. It stays **one registered source with two
+backends**, and `available()` now asks whether there is data rather than whether
+there is a directory.
+
+**Context.** OpenCode migrated its session store from a JSON object graph to
+SQLite in February 2026 and left the old directory behind. `available()` was one
+`statSync` on `storage/session`. That directory still existed, so the source
+reported itself healthy, `discover()` returned the same 344 frozen files every
+time, and `ingest` reported success for six months while 1,072 sessions
+accumulated somewhere it never looked.
+
+Nothing was broken in a way anything could see. That is the whole lesson: **a
+presence check on a container is not a check that the container has anything in
+it**, and "no new data" is indistinguishable from "I stopped being able to read
+your data" unless something measures freshness. This is the same shape as the
+2026-08-21 Node floor entry below — a check that tested for existence rather
+than for truth.
+
+**Why one source rather than two.** `makeRunId` keys on the source *name*, so a
+second source also called `opencode` would mint identical run ids for the same
+session and the two would fight over one row, while `isUnchanged`'s
+`WHERE source_file = ?` lookup would match neither and silently report
+"unchanged". Two backends behind one name has no such problem, and lets
+`discover()` return the union: the database wins wherever both have a session,
+and legacy-only sessions still come through for installs that never migrated.
+
+**Why the backends share every mapping function.** The migration moved the data
+without redesigning it — `message.data` and `part.data` hold the same JSON minus
+the three identity fields that became columns. So the read layer is the only
+thing that differs, and a shim puts `id`/`sessionID`/`messageID` back. Forking
+the parser would have been quicker and would have let a detector change apply to
+one backend and not the other; a test asserts both produce byte-identical `Run`s
+instead.
+
+**Ordering is by id, never by timestamp.** The migration collapsed
+`part.time_created` *and* `message.time_updated` onto the migration instant for
+every pre-existing row — 10,739 messages across 1,140 of 1,416 sessions on the
+store this was found against. Only `message.time_created` survived. Id order was
+validated against time order across all 41,347 messages and 25,573 parts with
+zero inversions, which is also why the file importer already sorted that way.
+The regression test builds a session whose parts all carry one identical
+timestamp, in reverse insertion order, with a four-part assistant turn — the
+multi-part turn is the point, because a fixture of one part per message has
+nothing to misorder and will pass against a broken sort.
+
+**Read-only, with no fallback.** The connection is opened `{ readOnly: true }`
+with `query_only`. If a WAL database has no `-shm` index the open fails, and the
+fix is *not* to retry read-write: writing into someone's agent data directory to
+read their history is not a trade this tool makes. It reports what would help
+instead.
+
+**Consequences.**
+
+- Re-ingesting is safe unflagged: session ids survived, `makeRunId` is
+  deterministic, so existing runs update in place. Verified against a copy of a
+  real store — 518 runs to 1,952, zero duplicates, zero lost.
+- `ingest` gained a per-source freshness report and a 30-day silence warning.
+  Generic on purpose; the next source to go quiet will go quiet differently.
+- `Source` gained optional `notes()` and `close()`. A database-backed source
+  holds an OS handle, and the registry hands out singletons to a long-lived
+  `serve`.
+- `OPENCODE_DB` overrides the database path, and `dbPath()` also consults
+  `dirname(OPENCODE_STORAGE_DIR)` — not cosmetic: every existing OpenCode test
+  sets that variable, and without the clause they would resolve the database
+  from `$HOME` and start reading the developer's real session history.
+- The next migration is already staged. `opencode.db` carries an empty
+  `session_message` table with its indexes built; `hasPopulatedSessionMessage()`
+  is the tripwire for the day OpenCode starts writing to it.
+
+---
+
+## 2026-08-21 — The Node floor is 22.13 (supersedes the 2026-08-17 entry)
+
+**Decision.** `engines.node` is `>=22.13.0`. This reverses "The Node floor is 24,
+not 22.5" below. Node 22 LTS is supported from 22.13.0 up.
+
+**Context.** The earlier entry was right about the mechanism and wrong about the
+boundary. `node:sqlite` did land in 22.5 behind `--experimental-sqlite`, and a
+`bin` script still cannot set a flag for its own process. But the flag was
+dropped in 23.4.0 (2024-12-10) and **backported to the 22 line in 22.13.0
+(2025-01-06)** — nineteen months before that entry was written. This was not a
+decision overtaken by a later release. It was wrong on the day it was made, and
+the log should say which kind of wrong it is.
+
+Measured rather than reasoned, this time. On 22.18.0 the module imports
+unflagged, `new DatabaseSync(':memory:')` works, the full suite passes 275/275,
+and `flightrec demo` + `flightrec list` run end to end. On 21.1.0 and 20.18.1 the
+import throws `ERR_UNKNOWN_BUILTIN_MODULE`, so the failure the earlier entry
+describes is real — it just starts one line lower than it claimed.
+
+**Why it mattered enough to revisit.** `>=24.0.0` is not a harmless
+over-declaration. npm emits `EBADENGINE`, which is a hard install failure under
+pnpm or `engine-strict`, and 22 is the LTS most people are actually running. The
+floor was turning away users to protect against a failure that does not occur on
+the versions being turned away.
+
+Nothing else in the tree needs a modern runtime: no `Object.groupBy`,
+`Promise.withResolvers`, Set methods, `RegExp.escape`, iterator helpers or import
+attributes; `tsconfig` targets ES2023; Biome needs ≥14 and TypeScript ≥16. The
+floor is caused by exactly one import, `src/store.ts`.
+
+**How the mistake was made, which is the reusable part.** The earlier entry says
+the floor was found by "a CI matrix leg pinned to the declared floor" failing.
+That leg was 22.5.x, where `node:sqlite` genuinely *is* flagged. The observation
+was correct; the inference was too broad. The evidence supported "raise the floor
+within 22.x" and was read as "leave the 22 line."
+
+**Floor legs are pinned to an exact version. `X.x` is not a floor.** The matrix
+ran `24.x`, which `setup-node` resolves to the newest 24 release — so the leg
+that existed to keep `engines.node` honest was testing whatever shipped most
+recently and had never once tested `>=24.0.0`. A floating spec cannot verify a
+lower bound. The new leg is the literal `22.13.0`, and `release.yml` runs the
+pre-publish `npm run check` on it too.
+
+**Consequences.**
+
+- `.nvmrc` pins 22.13.0. The policy is unchanged — the floor, not the latest —
+  because `node:sqlite` API drift is still the largest external risk and it
+  shows up on the oldest supported runtime first.
+- The macOS leg moves to the floor, preserving its original intent: when it was
+  written, `24.x` *was* the floor.
+- `@types/node` moves to `^22.20.1`, per the rule below that the types track the
+  floor. This matters more at 22.13 than it did at 24: with 24-era types, code
+  using a Node 24-only API would typecheck cleanly and then fail at runtime on
+  the floor. Verified against TypeScript 7.0.2 — `tsc --noEmit` is clean and all
+  275 tests pass on both 22.13.0 and 26.1.0.
+- The coverage job stays a single modern leg, but its stated reason is retired.
+  Coverage thresholds landed in 22.8, which the floor now clears; it is one leg
+  because three would prove nothing extra.
+- Rejected again, unchanged from the earlier entry: re-exec'ing with
+  `--experimental-sqlite` to support 22.5–22.12. It hides an experimental
+  dependency behind a process spawn, and 22.13 is old enough that the versions
+  it would buy are not worth it.
+
+Recording the reversal rather than editing the earlier entry, per the run-tape
+precedent below. The earlier entry was reasoned from a release note; this one is
+measured against the runtimes themselves — 22.18.0 works, 21.1.0 and 20.18.1
+throw. Measurement wins, same as last time.
+
+---
+
 ## 2026-08-18 — Elapsed time is not evidence of waste
 
 **Decision.** Duration does not decide a verdict. Analyzer 1.2.0 removed the
