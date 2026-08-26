@@ -8,18 +8,22 @@ body:
         This is the most valuable kind of report this project receives.
 
         Detector thresholds can only be validated against real usage, and that
-        is exactly the data the maintainers cannot generate for themselves. Two
-        detectors — `loop.revert` and `loop.stall_tail` — have never fired on a
-        real corpus at all, so their thresholds are still guesses.
+        is exactly the data the maintainers cannot generate for themselves. Every
+        threshold in this tool was set against one person's session history, so
+        the ones that are wrong are most likely wrong in the direction of that
+        person's habits.
 
-        Please redact as you go: `flightrec report <id> --json` contains your
+        **Run `flightrec feedback <run-id>` and paste the output below.** It is
+        built for this: no prompts, paths, file contents, commands or timestamps
+        are in it, so you do not have to redact it by hand. Do not paste
+        `flightrec report --json` — that is the full record, including your
         prompts and file contents.
 
   - type: dropdown
     id: given
     attributes:
       label: Verdict it gave
-      options: [productive, questionable, wasteful, risky]
+      options: [productive, unchanged, questionable, wasteful, risky]
     validations:
       required: true
 
@@ -27,18 +31,19 @@ body:
     id: expected
     attributes:
       label: Verdict you expected
-      options: [productive, questionable, wasteful, risky]
+      options: [productive, unchanged, questionable, wasteful, risky]
     validations:
       required: true
 
   - type: textarea
     id: fired
     attributes:
-      label: Which findings fired
+      label: The run summary
       description: >
-        The `id` fields from `flightrec report <run-id> --json`, e.g.
-        `loop.churn`, `risk.blast_radius`. Ids only is fine — no need to paste
-        the evidence.
+        Paste the whole output of `flightrec feedback <run-id>`. If you would
+        rather not, the detector names alone are still useful — e.g.
+        `loop.churn`, `risk.blast_radius`.
+      render: text
     validations:
       required: true
 

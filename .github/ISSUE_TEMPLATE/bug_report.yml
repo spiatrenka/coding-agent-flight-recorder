@@ -40,7 +40,7 @@ body:
     id: command
     attributes:
       label: Which command
-      options: [ingest, serve, report, list, stats, demo, other]
+      options: [ingest, list, report, feedback, serve, demo, regrade, corpus, stats, rm, other]
     validations:
       required: true
 

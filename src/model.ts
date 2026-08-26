@@ -49,7 +49,17 @@ export type FindingCategory =
  * the tool's own headline question, whether to trust the diff, does not apply
  * when there is no diff.
  */
-export type Label = "productive" | "unchanged" | "questionable" | "wasteful" | "risky";
+/**
+ * The canonical verdict list, in the order they are presented to a reader.
+ *
+ * An array rather than a bare union so there is exactly one place to read the
+ * set at runtime. The GitHub issue templates restate these labels, and the
+ * `unchanged` verdict — 47% of real runs — was missing from the wrong-verdict
+ * form for two releases because nothing could compare the two.
+ */
+export const LABELS = ["productive", "unchanged", "questionable", "wasteful", "risky"] as const;
+
+export type Label = (typeof LABELS)[number];
 export type CommandCategory = "test" | "build" | "lint" | "vcs" | "pkg" | "shell";
 export type EditOp = "create" | "edit" | "multi_edit" | "notebook" | "delete" | "unknown";
 
