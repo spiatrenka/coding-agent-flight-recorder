@@ -20,3 +20,13 @@ updates:
       # deliberately, in its own commit, with a .git-blame-ignore-revs entry —
       # not from an automated pull request.
       - dependency-name: "@biomejs/biome"
+      # `@types/node` tracks the `engines` floor by policy — see docs/DECISIONS.md.
+      # Its major must follow the floor's major, so a major bump here is only ever
+      # correct as part of deliberately raising the floor. Left to itself,
+      # Dependabot proposes the newest line every week and CI cannot object:
+      # `@types/node` affects typechecking only, and types that are too new
+      # *permit* code rather than rejecting it, so the build stays green while
+      # the typecheck quietly stops guarding the floor. Minor and patch bumps
+      # within the floor's major still come through.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]

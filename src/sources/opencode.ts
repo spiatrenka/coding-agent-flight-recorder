@@ -45,6 +45,16 @@ import {
   truncate,
 } from "../model.js";
 import { redact, redactDeep } from "../redact.js";
+import {
+  dbExists,
+  dbPath,
+  messageJson,
+  OpenCodeDb,
+  partJson,
+  sessionJson,
+  splitSyntheticPath,
+  syntheticPath,
+} from "./opencodeDb.js";
 import type { DiscoveredFile, Source } from "./types.js";
 
 const IDLE_GAP_SECONDS = Number(process.env["FLIGHTREC_IDLE_GAP"] ?? 1800);
@@ -113,24 +123,56 @@ function timeOf(o: Json, key: string): string | null {
   return parseTs(t[key]);
 }
 
+/** A message and the parts belonging to it, already ordered and parsed. */
+export interface MessageWithParts {
+  msg: Json;
+  parts: Json[];
+}
+
+/** One session's whole object graph, however it was stored. */
+interface SessionGraph {
+  session: Json;
+  messages: MessageWithParts[];
+}
+
 export class OpenCodeSource implements Source {
   readonly name = "opencode";
 
-  available(): boolean {
+  /** Cached read-only handle, keyed on the resolved path. */
+  private conn: { path: string; db: OpenCodeDb } | null = null;
+  private readonly notices: string[] = [];
+
+  /**
+   * Open — or reuse — the database handle.
+   *
+   * Keyed on the resolved path because the registry hands out singletons while
+   * `flightrec demo` and several tests move `OPENCODE_STORAGE_DIR` mid-process.
+   * Without the key a source would happily serve the previous root's data.
+   */
+  private db(): OpenCodeDb | null {
+    if (!dbExists()) return null;
+    const path = dbPath();
+    if (this.conn?.path === path) return this.conn.db;
+    this.conn?.db.close();
+    this.conn = null;
     try {
-      return statSync(join(storageDir(), "session")).isDirectory();
-    } catch {
-      return false;
+      this.conn = { path, db: new OpenCodeDb(path) };
+      return this.conn.db;
+    } catch (err) {
+      // A WAL database whose -shm index is missing cannot be opened read-only,
+      // and the fix is never to open it read-write: that would write into
+      // someone's agent data directory. Say what would actually help instead.
+      this.notices.push(
+        `${path} could not be opened read-only (${String(err)}). If OpenCode has not ` +
+          `run since this file was placed here, run it once — or copy opencode.db and ` +
+          `opencode.db-wal aside and point OPENCODE_DB at the copy.`,
+      );
+      return null;
     }
   }
 
-  /**
-   * One "file" per session. The path is the session record; everything else is
-   * resolved from the session id at load time.
-   */
-  discover(): DiscoveredFile[] {
+  private legacySessionFiles(): string[] {
     const root = join(storageDir(), "session");
-    const out: DiscoveredFile[] = [];
     let projects: string[];
     try {
       projects = readdirSync(root, { withFileTypes: true })
@@ -139,54 +181,183 @@ export class OpenCodeSource implements Source {
     } catch {
       return [];
     }
+    return projects.flatMap((dir) => listFiles(dir));
+  }
 
-    for (const dir of projects) {
-      for (const path of listFiles(dir)) {
-        try {
-          const st = statSync(path);
-          if (st.size === 0) continue;
-          out.push({
-            path,
-            sessionId: basename(path, ".json"),
-            // A session's own files change as it grows, but the session record
-            // is rewritten on every update, so its mtime tracks the whole
-            // session — which is what the ingest cache needs.
-            mtime: st.mtimeMs / 1000,
-            size: st.size,
-          });
-        } catch {
-          /* skip */
-        }
+  /**
+   * Is there OpenCode data here — not merely an OpenCode-shaped directory?
+   *
+   * This used to be one `statSync` on `storage/session`. OpenCode migrated to
+   * SQLite in February 2026 and left that directory behind, so the check kept
+   * answering yes against six months of frozen files. Presence of a container
+   * is not presence of data.
+   */
+  available(): boolean {
+    const db = this.db();
+    if (db?.hasSessions()) return true;
+    return this.legacySessionFiles().length > 0;
+  }
+
+  /**
+   * One "file" per session, from whichever backends have data.
+   *
+   * The database wins where both have a session, which on any migrated install
+   * is everything: it is a strict superset, holding the legacy sessions plus
+   * everything written since. Legacy-only sessions are still returned, because
+   * an older OpenCode install has no database at all and a partially-migrated
+   * one is not ours to assume away.
+   *
+   * Two backends rather than two registered sources on purpose: `makeRunId`
+   * keys on the source *name*, so a second source called `opencode` would mint
+   * identical run ids and the two would fight over one row.
+   */
+  discover(): DiscoveredFile[] {
+    const out: DiscoveredFile[] = [];
+    const fromDb = new Set<string>();
+
+    const db = this.db();
+    if (db) {
+      for (const row of db.listSessions()) {
+        fromDb.add(row.id);
+        out.push({
+          path: syntheticPath(db.path, row.id),
+          sessionId: row.id,
+          // `session.time_updated`, never anything derived from messages:
+          // `message.time_updated` is corrupt for every migrated row.
+          mtime: row.time_updated / 1000,
+          // Message count as a second signal, so a same-millisecond update
+          // still busts the ingest cache.
+          size: row.n_messages,
+        });
+      }
+      if (db.hasPopulatedSessionMessage()) {
+        this.notices.push(
+          "opencode.db has a populated `session_message` table — OpenCode may have moved " +
+            "its message store again. flightrec still reads `message`/`part`; if run counts " +
+            "have stopped growing, that is the first place to look.",
+        );
       }
     }
+
+    const legacy = this.legacySessionFiles();
+    let legacyOnly = 0;
+    for (const path of legacy) {
+      const sessionId = basename(path, ".json");
+      if (fromDb.has(sessionId)) continue;
+      try {
+        const st = statSync(path);
+        if (st.size === 0) continue;
+        legacyOnly++;
+        out.push({
+          path,
+          sessionId,
+          // The session record is rewritten on every update, so its mtime
+          // tracks the whole session — which is what the ingest cache needs.
+          mtime: st.mtimeMs / 1000,
+          size: st.size,
+        });
+      } catch {
+        /* skip */
+      }
+    }
+
+    if (db && legacy.length && legacyOnly === 0) {
+      this.notices.push(
+        `legacy storage/ directory found with ${legacy.length} session file(s), all of them ` +
+          `already in opencode.db. Reading the database; the directory is left over from the ` +
+          `2026-02 SQLite migration and can be deleted.`,
+      );
+    }
+
     out.sort((a, b) => b.mtime - a.mtime);
     return out;
   }
 
+  /** Anything this scan noticed that a user should know. Drained by `ingest`. */
+  notes(): string[] {
+    const out = [...this.notices];
+    this.notices.length = 0;
+    return out;
+  }
+
+  close(): void {
+    this.conn?.db.close();
+    this.conn = null;
+  }
+
   load(path: string): Run[] {
+    const graph = this.read(path);
+    if (!graph || graph.messages.length === 0) return [];
+    return this.segment(graph.messages)
+      .map((seg, i) => this.buildRun(graph.session, seg, path, i))
+      .filter((r): r is Run => r !== null && r.events.length >= MIN_EVENTS_PER_RUN);
+  }
+
+  /** Dispatch on the path shape: synthetic paths carry a database and a session id. */
+  private read(path: string): SessionGraph | null {
+    const split = splitSyntheticPath(path);
+    return split ? this.readFromDb(split.db, split.sessionId) : this.readFromFiles(path);
+  }
+
+  private readFromDb(dbFile: string, sessionId: string): SessionGraph | null {
+    const db = this.conn?.path === dbFile ? this.conn.db : this.db();
+    if (!db) return null;
+    const row = db.session(sessionId);
+    if (!row) return null;
+
+    const byMessage = new Map<string, Json[]>();
+    for (const p of db.parts(sessionId)) {
+      const part = partJson(p, sessionId);
+      if (!part) continue;
+      const list = byMessage.get(p.message_id);
+      if (list) list.push(part);
+      else byMessage.set(p.message_id, [part]);
+    }
+
+    const messages: MessageWithParts[] = [];
+    for (const m of db.messages(sessionId)) {
+      const msg = messageJson(m, sessionId);
+      if (!msg) continue;
+      messages.push({ msg, parts: byMessage.get(m.id) ?? [] });
+    }
+    return { session: sessionJson(row), messages };
+  }
+
+  private readFromFiles(path: string): SessionGraph | null {
     const session = readJson(path);
-    if (!session) return [];
+    if (!session) return null;
     const sessionId = str(session["id"]) ?? basename(path, ".json");
 
     const messages = listFiles(join(storageDir(), "message", sessionId))
       .map(readJson)
       .filter((m): m is Json => m !== null)
-      .sort((a, b) => String(a["id"]).localeCompare(String(b["id"])));
+      .sort((a, b) => String(a["id"]).localeCompare(String(b["id"])))
+      .map((msg) => {
+        const messageId = str(msg["id"]);
+        const parts = messageId
+          ? listFiles(join(storageDir(), "part", messageId))
+              .map(readJson)
+              .filter((p): p is Json => p !== null)
+              .sort((a, b) => String(a["id"]).localeCompare(String(b["id"])))
+          : [];
+        return { msg, parts };
+      });
 
-    if (messages.length === 0) return [];
-
-    return this.segment(messages)
-      .map((seg, i) => this.buildRun(session, seg, path, i))
-      .filter((r): r is Run => r !== null && r.events.length >= MIN_EVENTS_PER_RUN);
+    return { session, messages };
   }
 
-  /** Same rule as the Claude Code importer: wall-clock silence ends a run. */
-  private segment(messages: Json[]): Json[][] {
-    const segments: Json[][] = [];
-    let cur: Json[] = [];
+  /**
+   * Same rule as the Claude Code importer: wall-clock silence ends a run.
+   *
+   * Splits on `message.time.created`, which is the one timestamp the SQLite
+   * migration left intact — see the hazard note in `opencodeDb.ts`.
+   */
+  private segment(messages: MessageWithParts[]): MessageWithParts[][] {
+    const segments: MessageWithParts[][] = [];
+    let cur: MessageWithParts[] = [];
     let prevTs: string | null = null;
     for (const m of messages) {
-      const ts = timeOf(m, "created");
+      const ts = timeOf(m.msg, "created");
       const gap = secondsBetween(prevTs, ts);
       if (gap !== null && gap > IDLE_GAP_SECONDS && cur.length) {
         segments.push(cur);
@@ -199,7 +370,12 @@ export class OpenCodeSource implements Source {
     return segments;
   }
 
-  private buildRun(session: Json, seg: Json[], path: string, segmentIdx: number): Run | null {
+  private buildRun(
+    session: Json,
+    seg: MessageWithParts[],
+    path: string,
+    segmentIdx: number,
+  ): Run | null {
     const sessionId = str(session["id"]) ?? basename(path, ".json");
     const run: Run = {
       runId: makeRunId(this.name, sessionId, segmentIdx),
@@ -230,9 +406,8 @@ export class OpenCodeSource implements Source {
     let reportedCost = 0;
     let sawCost = false;
 
-    for (const msg of seg) {
+    for (const { msg, parts } of seg) {
       const role = str(msg["role"]) ?? "unknown";
-      const messageId = str(msg["id"]);
       const ts = timeOf(msg, "created");
       const model = str(msg["modelID"]);
       if (model && !run.models.includes(model)) run.models.push(model);
@@ -248,13 +423,6 @@ export class OpenCodeSource implements Source {
           sawCost = true;
         }
       }
-
-      const parts = messageId
-        ? listFiles(join(storageDir(), "part", messageId))
-            .map(readJson)
-            .filter((p): p is Json => p !== null)
-            .sort((a, b) => String(a["id"]).localeCompare(String(b["id"])))
-        : [];
 
       for (const part of parts) {
         const ptype = str(part["type"]) ?? "unknown";

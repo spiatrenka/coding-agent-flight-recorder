@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /** flightrec command line. */
 
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { ANALYZER_VERSION, analyze } from "./analyze/index.js";
 import { auditCorpus, formatCorpusReport } from "./corpus.js";
-import { ingest } from "./ingest.js";
+import { buildFeedback, formatFeedback } from "./feedback.js";
+import { ingest, staleSources } from "./ingest.js";
 import type { Label } from "./model.js";
 import { generate } from "./postmortem.js";
 import { serve } from "./server.js";
@@ -108,10 +110,29 @@ function cmdIngest(args: Args): number {
     console.log(`${res.errors.length} error(s):`);
     for (const e of res.errors.slice(0, 10)) console.log(`  ${e}`);
   }
+  for (const report of res.sourceReports) {
+    for (const note of report.notes) console.log(`\n${report.source}: ${note}`);
+  }
+
+  // A source that has gone quiet is the failure this exists to catch: the
+  // OpenCode importer served the same frozen files for six months and every
+  // ingest reported success, because "0 new" and "broken" look identical.
+  const stale = staleSources(res, (s) => store.listRuns({ source: s, limit: 1 }).length > 0);
+  for (const r of stale) {
+    const days = Math.floor(r.staleDays ?? 0);
+    console.log(
+      `\nWARNING: the newest ${r.source} data on this machine is ${days} days old ` +
+        `(${(r.newestItem ?? "").slice(0, 10)}), but this store already has ${r.source} runs. ` +
+        `Either you have not used it since, or it has moved where it keeps its data and ` +
+        `flightrec is reading the wrong place.`,
+    );
+  }
+
   if (!res.sourcesUsed.length) {
     console.log(
       "\nNo agent data found. Looked for Claude Code transcripts under ~/.claude/projects " +
-        "(override with CLAUDE_CONFIG_DIR).",
+        "(CLAUDE_CONFIG_DIR to relocate), and OpenCode sessions under " +
+        "~/.local/share/opencode (OPENCODE_DATA_DIR, or OPENCODE_DB for the database itself).",
     );
   }
   store.close();
@@ -344,6 +365,59 @@ function cmdStats(args: Args): number {
   return 0;
 }
 
+/**
+ * The installed version, for the provenance line in `feedback`.
+ *
+ * Read at call time rather than baked in at build: a wrong version number in a
+ * bug report is worse than an absent one, and this is the only consumer.
+ */
+function packageVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(resolve(here, "..", "..", "package.json"), "utf8");
+    return (JSON.parse(raw) as { version?: string }).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Print a summary of one run that is safe to paste into a chat window.
+ *
+ * With no id it takes the most recent run and says which one it picked, because
+ * the moment this is wanted is right after seeing a wrong verdict in `list`, and
+ * copying an id out of a terminal is exactly the friction that stops a report
+ * from being sent.
+ */
+function cmdFeedback(args: Args): number {
+  const store = new Store(args.db);
+  let runId = args.positional[0];
+
+  if (!runId) {
+    const recent = store.listRuns({ limit: 1, includeTrivial: true });
+    const latest = recent[0];
+    if (!latest) {
+      console.log("no runs — try `flightrec demo` or `flightrec ingest` first");
+      store.close();
+      return 1;
+    }
+    runId = latest.run_id;
+    console.log(`(newest run: ${runId} — pass a run id to pick a different one)\n`);
+  }
+
+  const feedback = buildFeedback(store, runId, packageVersion());
+  if (!feedback) {
+    console.error(`no run '${runId}'`);
+    store.close();
+    return 1;
+  }
+  console.log(
+    args.flags.has("json") ? JSON.stringify(feedback, null, 2) : formatFeedback(feedback),
+  );
+  store.close();
+  return 0;
+}
+
 function cmdCorpus(args: Args): number {
   const store = new Store(args.db);
   const report = auditCorpus(store, { includeSynthetic: args.flags.has("include-synthetic") });
@@ -406,6 +480,9 @@ Commands:
   demo                  load synthetic runs to try the dashboard
   stats                 aggregate stats across stored runs
   corpus                audit what the detectors did across the whole store
+  feedback [run-id]     a short summary of one run, safe to paste to someone
+                        else — no prompts, paths, file contents or commands.
+                        Defaults to the newest run.
     --json              machine-readable instead of a table
     --include-synthetic  count runs seeded by the demo command too
 
@@ -432,6 +509,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return cmdStats(args);
     case "corpus":
       return cmdCorpus(args);
+    case "feedback":
+      return cmdFeedback(args);
     case "demo":
       return cmdDemo(args);
     default:

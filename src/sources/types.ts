@@ -22,4 +22,20 @@ export interface Source {
   discover(): DiscoveredFile[];
   /** Parse one transcript into one or more segmented Runs. */
   load(path: string): Run[];
+  /**
+   * Anything about this scan the user should be told, drained after discovery.
+   *
+   * For facts about the *source* — "the directory I read has been frozen since
+   * February" — not about a run. Run-level surprises belong in
+   * `Run.schemaDrift`, which is per-run and ends up in that run's postmortem.
+   */
+  notes?(): string[];
+  /**
+   * Release any OS handle held across a scan.
+   *
+   * A source backed by a file needs nothing here. One backed by a database does:
+   * the registry hands out singletons and `serve` is long-lived, so without this
+   * a connection outlives every scan that opened it.
+   */
+  close?(): void;
 }
