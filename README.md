@@ -37,7 +37,7 @@ Decisions worth not re-litigating: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Quickstart
 
-Node 24+ (for `node:sqlite`). **Zero runtime dependencies.**
+Node 22.13+ (for `node:sqlite`). **Zero runtime dependencies.**
 
 Against your own history, with the CLI installed globally:
 
@@ -71,6 +71,7 @@ npm run serve
 | `npm run serve` | dashboard on loopback (alias: `npm start`) | ✓ |
 | `npm run list` | list analysed runs | |
 | `npm run report -- <run-id>` | print one postmortem | |
+| `npm run feedback -- <run-id>` | a short summary of one run, safe to paste to someone else | |
 | `npm run regrade` | re-grade stored runs from stored traces after an upgrade | |
 | `npm run rm -- <run-id>` | delete stored runs (`--dry-run`, `--project`, `--synthetic`) | |
 | `npm run stats` | aggregate stats | |
@@ -102,7 +103,9 @@ npm run report -- cl-0ba5c9137399 --json
 | Variable | Purpose |
 |---|---|
 | `CLAUDE_CONFIG_DIR` | where Claude Code stores transcripts (default `~/.claude`) |
-| `OPENCODE_STORAGE_DIR` | where OpenCode stores sessions (default `~/.local/share/opencode/storage`) |
+| `OPENCODE_DB` | OpenCode's SQLite database (default `~/.local/share/opencode/opencode.db`) |
+| `OPENCODE_STORAGE_DIR` | OpenCode's pre-2026-02 session directory (default `~/.local/share/opencode/storage`) |
+| `OPENCODE_DATA_DIR` | OpenCode's data directory, when both of the above are unset |
 | `FLIGHTREC_HOME` | database location (default `~/.flightrec`) |
 | `FLIGHTREC_IDLE_GAP` | seconds of silence that end a run (default `1800`) |
 | `FLIGHTREC_PRICES` | JSON price table overriding the built-in cost model |
@@ -118,10 +121,14 @@ Suggested order, roughly the data flow:
 2. **`src/sources/claudeCode.ts`** — the only file that knows what Claude Code's JSONL looks like.
    Two things drive its shape: the format is documented as changing between releases, so parsing is
    tolerant by construction; and a transcript file is *not* a run, so it segments.
-   **`src/sources/opencode.ts`** is the same job against a different shape — OpenCode stores an
-   object graph rather than one file per session, and records more than a transcript does (its own
-   cost figure, a repo-level diff summary, explicit tool status). Reading the two side by side is the
+   **`src/sources/opencode.ts`** is the same job against a different shape. OpenCode keeps an object
+   graph rather than one file per session, and records more than a transcript does (its own cost
+   figure, a repo-level diff summary, explicit tool status). Reading the two side by side is the
    fastest way to see what the `Source` seam actually buys.
+   **`src/sources/opencodeDb.ts`** is that graph's second home: OpenCode moved it from JSON files
+   into SQLite in February 2026, so the importer has two backends behind one source and prefers the
+   database. It is also the cautionary tale — the old directory was left in place, so the check for
+   "is OpenCode installed" kept passing while the data behind it had been frozen for six months.
 3. **`src/analyze/`** — `loops.ts`, `risk.ts`, `verify.ts`, `cost.ts` are pure functions
    `Run → Finding[]`. `index.ts` orchestrates them and assigns the verdict.
 4. **`src/postmortem.ts`** — renders the Analysis into prose and compiles findings into guardrails.
@@ -380,9 +387,10 @@ Two things are worth copying from `opencode.ts` when you write one:
   The parser is tolerant by construction — unknown entry types are recorded as schema drift and
   surfaced in the UI rather than dropped or fatal — but a large format change will degrade the
   detail available.
-- `node:sqlite` is still marked experimental in Node 24. It is a single-writer local file here,
-  which is the case it handles well, but the API could shift in a future Node release. This is why
-  `.nvmrc` pins the floor rather than the latest.
+- `node:sqlite` is still marked experimental on the 22 and early 24 lines, and only became a
+  release candidate in 24.15. It is a single-writer local file here, which is the case it handles
+  well, but the API could shift. This is why `.nvmrc` pins the floor rather than the latest — the
+  oldest supported runtime is where drift shows up first.
 - **Windows is untested.** CI covers Linux and macOS. The test glob is POSIX and the path guards
   are separator-sensitive; rather than claim support nobody has verified, it is left unclaimed.
 - The `flightrec` binary name may collide if you have also installed the unrelated `flightrec`
@@ -399,6 +407,27 @@ Two things are worth copying from `opencode.ts` when you write one:
   survived in the working tree afterwards. Shell-mediated changes are *detected* but not measured —
   the run is marked as having an incomplete diff rather than a counted one.
 - Subagent (`Task`) trees are recorded as tool calls but not yet expanded into nested timelines.
+
+---
+
+## Got a verdict that looks wrong?
+
+That is the most useful thing you can report, and the hardest for this project to find on its own.
+Every threshold here was calibrated against one person's session history, so the ones that are
+wrong are most likely wrong in the direction of that person's habits.
+
+```bash
+flightrec feedback <run-id>     # or no id at all, for the newest run
+```
+
+It prints a short summary — the verdict, which detectors fired, and the shape of the run. **No
+prompts, file paths, file contents, commands, branch names or timestamps are in it**, so you can
+paste it into a chat window without reading it line by line first. Nothing is sent anywhere; it
+just prints.
+
+Send it to whoever gave you this tool, or open a
+[wrong verdict](https://github.com/spiatrenka/coding-agent-flight-recorder/issues/new?template=wrong_verdict.yml)
+issue — and say which verdict you expected. That line is the part that matters.
 
 ---
 
