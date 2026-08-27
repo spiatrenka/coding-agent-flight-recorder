@@ -25,9 +25,8 @@ import {
   fixtureRisky,
   fixtureStall,
   fixtureUnverifiedClaim,
-  fixtureWideDiff,
 } from "../src/demo/fixtures.js";
-import { churnedLines, type Finding, type Run } from "../src/model.js";
+import { churnedLines, type Finding, filesTouched, type Run } from "../src/model.js";
 import { generate } from "../src/postmortem.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 
@@ -48,6 +47,29 @@ function load(b: Builder): { run: Run; findings: Finding[] } {
   assert.equal(runs.length, 1, "fixture should segment into exactly one run");
   const run = runs[0] as Run;
   return { run, findings: analyze(run).findings };
+}
+
+function fixtureWithFileCount(count: number): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T11:30:00Z") });
+  b.user("Fix the typo in the error message.");
+  for (let i = 0; i < count; i++) {
+    b.edit(
+      `/Users/dev/code/payments-api/src/handlers/h${i}.ts`,
+      "throw new Error('recieved')",
+      "throw new Error('received')",
+    );
+  }
+  return b;
+}
+
+function fixtureWithChurn(oldLines: number, newLines: number): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T12:30:00Z") });
+  b.user("Migrate the settlement module off the legacy money helper.");
+  const old = Array.from({ length: oldLines }, (_, i) => `legacyMoney.add(row[${i}]);`).join("\n");
+  const neu = Array.from({ length: newLines }, (_, i) => `Money.of(row[${i}]).add();`).join("\n");
+  b.edit("/Users/dev/code/payments-api/src/settlement/apply.ts", old, neu);
+  b.say("Migrated. I have not run the suite.");
+  return b;
 }
 
 const ids = (findings: Finding[]): string[] => findings.map((f) => f.id);
@@ -89,20 +111,76 @@ describe("loop.stall_tail", () => {
 });
 
 describe("risk.blast_radius", () => {
-  // Two independent arms, so both get their own case.
-  it("flags a wide change surface from a narrow request", () => {
-    const { run, findings } = load(fixtureWideDiff());
+  it("fires at exactly the 10-file threshold", () => {
+    const { run, findings } = load(fixtureWithFileCount(10));
     assert.ok((run.goal ?? "").length < 200, "premise: the ask really is short");
+    assert.equal(filesTouched(run).length, 10, "premise: the diff is exactly at the threshold");
     const f = find(findings, "risk.blast_radius");
-    assert.match(f.detail, /files changed for a one-line request/);
+    assert.match(f.title, /10 files/);
+    assert.match(f.detail, /in response to a request of under 200 characters/);
+  });
+
+  it("stays silent one file below the threshold", () => {
+    const { run, findings } = load(fixtureWithFileCount(9));
+    assert.equal(filesTouched(run).length, 9, "premise: the diff is one file below the threshold");
+    assert.equal(
+      findings.find((f) => f.id === "risk.blast_radius"),
+      undefined,
+    );
+  });
+
+  it("does not fire on a deep diff that touched few files", () => {
+    const { run, findings } = load(fixtureBigDiff());
+    assert.ok(filesTouched(run).length < 10, "premise: the diff is deep, not wide");
+    assert.equal(
+      findings.find((f) => f.id === "risk.blast_radius"),
+      undefined,
+    );
+  });
+});
+
+describe("risk.unverified_large_diff", () => {
+  it("fires at exactly the 1,800-line threshold", () => {
+    const { run, findings } = load(fixtureWithChurn(900, 900));
+    assert.equal(churnedLines(run), 1800, "premise: the diff is exactly at the threshold");
+    find(findings, "risk.unverified_large_diff");
+  });
+
+  it("stays silent one line below the threshold", () => {
+    const { run, findings } = load(fixtureWithChurn(900, 899));
+    assert.equal(churnedLines(run), 1799, "premise: the diff is one line below the threshold");
+    assert.equal(
+      findings.find((f) => f.id === "risk.unverified_large_diff"),
+      undefined,
+    );
   });
 
   it("flags a large diff with no passing verification", () => {
     const { run, findings } = load(fixtureBigDiff());
     const changed = churnedLines(run);
-    assert.ok(changed >= 400, `premise: the diff really is large (was ${changed})`);
-    const f = find(findings, "risk.blast_radius");
-    assert.match(f.detail, /lines changed with no passing verification/);
+    assert.ok(changed >= 1800, `premise: the diff really is large (was ${changed})`);
+    const f = find(findings, "risk.unverified_large_diff");
+    assert.match(f.title, /lines changed with nothing green behind them/);
+  });
+
+  // Roughly half of this detector's real firings are single-file runs, so breadth
+  // language in its own text would be false rather than merely imprecise.
+  it("claims volume, never breadth", () => {
+    const { run, findings } = load(fixtureBigDiff());
+    const f = find(findings, "risk.unverified_large_diff");
+    assert.match(f.detail, new RegExp(`across ${filesTouched(run).length} files`));
+    assert.doesNotMatch(`${f.title} ${f.detail}`, /wide|change surface|spread/i);
+  });
+
+  it("stays silent once a check has passed", () => {
+    const passing = fixtureBigDiff().bash("npm test", {
+      stdout: "Test Suites: 1 passed, 1 total\nTests:       9 passed, 9 total",
+    });
+    const { findings } = load(passing);
+    assert.equal(
+      findings.find((f) => f.id === "risk.unverified_large_diff"),
+      undefined,
+    );
   });
 });
 

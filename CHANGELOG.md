@@ -12,6 +12,53 @@ with one project-specific rule worth stating up front:
 
 ## [Unreleased]
 
+### Changed
+
+- **`risk.blast_radius` is split in two, and its line threshold moves from 400 to
+  1,800.** The finding tested two unrelated things under one id and one headline:
+  many files for a small ask (*breadth*), and many changed lines with nothing green
+  (*volume*). Breadth keeps `risk.blast_radius`; volume becomes
+  **`risk.unverified_large_diff`**.
+
+  0.2.0 recorded that the 400-line threshold was wrong and left recalibrating it to
+  a later release. Re-measured over a 1,952-run store — 609 runs with a diff — it was
+  worse than that note estimated, and the threshold was not the only defect:
+
+  - **400 lines was the 62nd percentile.** Median churn among runs with a diff is
+    **207** (p75 819, p90 1826, p95 2724). A finding announcing a large change fired
+    on **151 runs — 24.8% of every run that touched a file**. 126 of those 151 came
+    from the lines arm alone.
+  - **It mostly restated a finding already on the run.** 121 of the 143 lines-arm
+    runs (85%) already carried a `verify.*` finding; 85 carried `verify.never_ran`.
+  - **The `no passing verification` conjunct was not selecting anything.** Median
+    churn is *higher* among runs that verified green (**249**) than among runs that
+    did not (**191**). Size and lack-of-verification are effectively independent
+    here, so `churn >= 400 && !passed` was the median diff intersected with an
+    unrelated fact rather than a risk class.
+  - **The text was false for half of what fired.** 44 of 143 lines-arm firings
+    changed exactly **one** file and 52 changed two or fewer — reported under a title
+    counting files and a detail arguing about "wide diffs from narrow asks".
+
+  At 1,800 lines (the p90) the volume finding fires on **47** runs and breadth on
+  **25**, so the pair covers **64 runs — 10.5% of runs with a diff**, down from
+  24.8%. 22 of the 47 volume firings are still single-file, which is why the split
+  was needed and not the threshold alone: `risk.unverified_large_diff` claims volume
+  only, and its title and detail never describe a change as spread out.
+
+  The `verification !== "passed"` gate is kept rather than dropped, though the
+  independence result invites dropping it — without it the finding fires on 58 runs.
+  The claim being made is that a diff is both too large to review line by line and
+  unbacked by any check, and the new wording says exactly that.
+
+  **No verdict changes.** Both findings stay `scope`/`medium`, and cascade rule 1
+  needs `scope` at `high`; the verdict distribution over the store is unchanged
+  across a full regrade. Run `flightrec regrade --all` to move an existing archive
+  onto the new ids — stored runs keep `risk.blast_radius` until then, and the
+  dashboard renders the stored title verbatim rather than breaking.
+
+  `fixtureBigDiff` grew from 480 to 2,000 churned lines across the same two files,
+  so the demo run still exercises the volume finding without tripping breadth.
+
 ## [0.3.0] - 2026-08-26
 
 ### Changed

@@ -463,12 +463,16 @@ export function fixtureWideDiff(): Builder {
   return b;
 }
 
-/** A large diff with nothing green to back it. */
+/**
+ * A large diff with nothing green to back it. Two files and 2,000 churned lines:
+ * deliberately deep rather than wide, so it clears `LARGE_CHURN_LINES` without
+ * tripping the many-files check and pins that the volume finding claims no breadth.
+ */
 export function fixtureBigDiff(): Builder {
   const b = new Builder({ start: new Date("2026-08-12T12:00:00Z") });
   b.user("Migrate the settlement module off the legacy money helper.");
-  const old = Array.from({ length: 120 }, (_, i) => `  legacyMoney.add(row[${i}]);`).join("\n");
-  const neu = Array.from({ length: 120 }, (_, i) => `  Money.of(row[${i}]).add();`).join("\n");
+  const old = Array.from({ length: 500 }, (_, i) => `  legacyMoney.add(row[${i}]);`).join("\n");
+  const neu = Array.from({ length: 500 }, (_, i) => `  Money.of(row[${i}]).add();`).join("\n");
   b.edit("/Users/dev/code/payments-api/src/settlement/apply.ts", old, neu);
   b.edit("/Users/dev/code/payments-api/src/settlement/batch.ts", old, neu);
   b.say("Migrated. I have not run the suite.");

@@ -5,6 +5,48 @@ otherwise be re-litigated.
 
 ---
 
+## 2026-08-27 — A size threshold is a percentile, and one finding makes one claim
+
+**Decision.** `risk.blast_radius` splits into a breadth finding (10+ files for a
+request under 200 characters) and a volume finding,
+`risk.unverified_large_diff` (1,800+ churned lines with no check green). Size
+thresholds are set from a measured percentile of the real corpus, not chosen.
+
+**Context.** The 400-line threshold was known to be wrong since 0.2.0 and left for
+later. Measured over a 1,952-run store (609 with a diff) it was the **62nd
+percentile** — median churn is 207 — and the finding fired on 24.8% of every run
+that touched a file, 126 of 151 firings coming from that arm alone.
+
+Two things surfaced that the threshold discussion had not anticipated:
+
+- **The conjunction was not selecting a risk class.** `churn >= 400 && !passed`
+  reads like "big change nobody checked", but median churn is *higher* among runs
+  that verified green (249) than among runs that did not (191). The two conditions
+  are effectively independent in this corpus, so the arm was the median diff
+  intersected with an unrelated fact. 85% of its firings (121 of 143) already
+  carried a `verify.*` finding, so it was largely restating one.
+- **One id covering two claims made the text false, not just vague.** 44 of the 143
+  firings changed exactly one file, under a headline counting files and a detail
+  about "wide diffs from narrow asks". No single wording can be honest about both
+  breadth and volume, which is why this is a split and not a rewrite.
+
+**Consequences.** The pair fires on 64 runs — 10.5% of runs with a diff, from 24.8%.
+Both stay `scope`/`medium`, so no verdict moved. `risk.unverified_large_diff` must
+never describe a change as wide or spread out: roughly half its firings are
+single-file, and a test pins that.
+
+The `verification !== "passed"` gate is kept even though the independence result
+invites dropping it (58 firings without it). The finding's claim is that a diff is
+both too large to review by hand and unbacked by a check — the gate is that claim,
+and the wording now states it.
+
+**This is the fourth defect found by corpus measurement rather than by fixtures.**
+Every fixture passed throughout, and would have passed at any threshold: a fixture
+pins that the code does what its author meant, and here what the author meant was
+a number that described the median run.
+
+---
+
 ## 2026-08-26 — One OpenCode source, two backends, and a check that tests for data
 
 **Decision.** `OpenCodeSource` reads `opencode.db` and prefers it, falling back

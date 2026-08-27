@@ -29,7 +29,9 @@ import { allRiskFindings } from "./risk.js";
 import { allVerificationFindings, analyzeVerification, type Verification } from "./verify.js";
 
 /**
- * Bumped when grading changes in a way that would relabel a stored run.
+ * Bumped when grading changes what a stored run reports — its label *or* its
+ * findings. Findings are the product, so a store whose findings are stale is as
+ * out of date as one whose verdicts are, even when every verdict still matches.
  *
  * 1.1.0 added the `unchanged` label, so a store graded by 1.0.0 still shows those
  * runs as `questionable`. `flightrec list` and the dashboard say so rather than
@@ -37,10 +39,15 @@ import { allVerificationFindings, analyzeVerification, type Verification } from 
  *
  * 1.2.0 stopped treating elapsed time as evidence of waste, so long no-diff runs
  * that a 1.1.0 store graded `wasteful` are now `unchanged`. Since 1.2.0 `ingest`
- * regrades on an analyzer change instead of skipping unchanged files, so this is
+ * regrades on an analyzer change instead of skipping unchanged files, so 1.1.0 is
  * the last version that needs `--force` to take effect.
+ *
+ * 1.3.0 split `risk.blast_radius` and moved its line threshold from 400 to 1,800.
+ * No verdict moves — both findings are `scope`/`medium` and cascade rule 1 needs
+ * `scope` at `high` — but a 1.2.0 store reports the old finding on 151 runs where
+ * 1.3.0 reports the pair on 64, so the bump is what lets `regrade` reach them.
  */
-export const ANALYZER_VERSION = "1.2.0";
+export const ANALYZER_VERSION = "1.3.0";
 
 export interface StopPoint {
   eventIdx: number;

@@ -56,6 +56,7 @@ describe("detectorOf", () => {
       "risk.outside_project",
       "risk.secret_file_read",
       "risk.secret_file_write",
+      "risk.unverified_large_diff",
       "verify.never_ran",
       "verify.unbacked_claim",
     ]) {
