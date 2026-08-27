@@ -27,7 +27,7 @@ import {
   fixtureUnverifiedClaim,
   fixtureWideDiff,
 } from "../src/demo/fixtures.js";
-import { churnedLines, type Finding, type Run } from "../src/model.js";
+import { churnedLines, type Finding, filesTouched, type Run } from "../src/model.js";
 import { generate } from "../src/postmortem.js";
 import { ClaudeCodeSource } from "../src/sources/claudeCode.js";
 
@@ -89,20 +89,51 @@ describe("loop.stall_tail", () => {
 });
 
 describe("risk.blast_radius", () => {
-  // Two independent arms, so both get their own case.
   it("flags a wide change surface from a narrow request", () => {
     const { run, findings } = load(fixtureWideDiff());
     assert.ok((run.goal ?? "").length < 200, "premise: the ask really is short");
     const f = find(findings, "risk.blast_radius");
-    assert.match(f.detail, /files changed for a one-line request/);
+    assert.match(f.title, /10 files/);
+    assert.match(f.detail, /in response to a request of under 200 characters/);
   });
 
+  it("does not fire on a deep diff that touched few files", () => {
+    const { run, findings } = load(fixtureBigDiff());
+    assert.ok(filesTouched(run).length < 10, "premise: the diff is deep, not wide");
+    assert.equal(
+      findings.find((f) => f.id === "risk.blast_radius"),
+      undefined,
+    );
+  });
+});
+
+describe("risk.unverified_large_diff", () => {
   it("flags a large diff with no passing verification", () => {
     const { run, findings } = load(fixtureBigDiff());
     const changed = churnedLines(run);
-    assert.ok(changed >= 400, `premise: the diff really is large (was ${changed})`);
-    const f = find(findings, "risk.blast_radius");
-    assert.match(f.detail, /lines changed with no passing verification/);
+    assert.ok(changed >= 1800, `premise: the diff really is large (was ${changed})`);
+    const f = find(findings, "risk.unverified_large_diff");
+    assert.match(f.title, /lines changed with nothing green behind them/);
+  });
+
+  // Roughly half of this detector's real firings are single-file runs, so breadth
+  // language in its own text would be false rather than merely imprecise.
+  it("claims volume, never breadth", () => {
+    const { run, findings } = load(fixtureBigDiff());
+    const f = find(findings, "risk.unverified_large_diff");
+    assert.match(f.detail, new RegExp(`across ${filesTouched(run).length} files`));
+    assert.doesNotMatch(`${f.title} ${f.detail}`, /wide|change surface|spread/i);
+  });
+
+  it("stays silent once a check has passed", () => {
+    const passing = fixtureBigDiff().bash("npm test", {
+      stdout: "Test Suites: 1 passed, 1 total\nTests:       9 passed, 9 total",
+    });
+    const { findings } = load(passing);
+    assert.equal(
+      findings.find((f) => f.id === "risk.unverified_large_diff"),
+      undefined,
+    );
   });
 });
 

@@ -383,36 +383,95 @@ export function detectDestructiveCommands(run: Run): Finding[] {
   return findings;
 }
 
-export function detectBlastRadius(run: Run, verification: Verification): Finding[] {
+/**
+ * Thresholds for the two change-size detectors below, both set from the p90 of a
+ * real 609-run diff corpus rather than by intuition.
+ *
+ * `LARGE_CHURN_LINES` was 400 until this release, which measured at the **62nd
+ * percentile** of runs with a diff — a finding announcing a large change tripped
+ * just above the median one, on 24.8% of every run that touched a file. See the
+ * 2026-08-27 entry in `docs/DECISIONS.md` for the full measurement.
+ */
+const WIDE_FILE_COUNT = 10;
+const LARGE_CHURN_LINES = 1800;
+
+/**
+ * A diff that is *wide* relative to the request: many files for a small ask.
+ *
+ * Breadth only. Volume is `detectUnverifiedVolume`, and the two were one finding
+ * until this release — which meant 44 of 143 firings were single-file runs
+ * reported under a headline counting files and a rationale about changes spread
+ * across a codebase.
+ */
+export function detectBlastRadius(run: Run): Finding[] {
   const files = filesTouched(run);
-  const lines = churnedLines(run);
   const smallAsk = run.goalIsKnown && (run.goal ?? "").length < 200;
+  if (!smallAsk || files.length < WIDE_FILE_COUNT) return [];
 
-  const reasons: string[] = [];
-  if (smallAsk && files.length >= 10)
-    reasons.push(`${files.length} files changed for a one-line request`);
-  if (lines >= 400 && verification.status !== "passed") {
-    reasons.push(`${lines} lines changed with no passing verification`);
-  }
-  if (reasons.length === 0) return [];
-
+  const lines = churnedLines(run);
   return [
     {
       id: "risk.blast_radius",
-      title: `Large change surface: ${files.length} files, ${lines} lines`,
+      title: `Wide change surface: ${files.length} files for a small request`,
       severity: "medium",
       category: "scope",
       detail:
-        `${reasons.join("; ")}. Wide diffs from narrow asks are where unrelated 'improvements' ` +
-        `hide — reformatting, renamed variables, deleted comments — and they are the hardest ` +
-        `kind of agent output to review honestly.`,
+        `${files.length} files changed (${lines} lines) in response to a request of under 200 ` +
+        `characters. Wide diffs from narrow asks are where unrelated 'improvements' hide — ` +
+        `reformatting, renamed variables, deleted comments — and they are the hardest kind of ` +
+        `agent output to review honestly.`,
       evidence: [{ eventIdx: 0, label: "files changed", excerpt: files.slice(0, 12).join(", ") }],
       firstEventIdx: null,
       suggestedRules: [
         {
           kind: "budget",
-          rule: "Warn above 10 changed files or 400 changed lines in a single run",
+          rule: `Warn above ${WIDE_FILE_COUNT} changed files in a single run`,
           implementation: "PostToolUse hook accumulating per-run edit counts",
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * A diff too large to review with nothing green behind it.
+ *
+ * Volume, never breadth: roughly half the runs this fires on touch a single file,
+ * so neither the title nor the detail may claim the change was spread out. The
+ * `passed` gate is what makes this a finding rather than a statistic — the claim
+ * is that the change is both unreviewable by size and unbacked by a check.
+ */
+export function detectUnverifiedVolume(run: Run, verification: Verification): Finding[] {
+  const lines = churnedLines(run);
+  if (lines < LARGE_CHURN_LINES || verification.status === "passed") return [];
+
+  const files = filesTouched(run);
+  const where = files.length === 1 ? "1 file" : `${files.length} files`;
+  return [
+    {
+      id: "risk.unverified_large_diff",
+      title: `${lines.toLocaleString()} lines changed with nothing green behind them`,
+      severity: "medium",
+      category: "scope",
+      detail:
+        `${lines.toLocaleString()} lines were added or removed across ${where}, and no test, ` +
+        `build or lint finished green. A diff this size is past the point where anyone reviews ` +
+        `it line by line, so a passing check is the only evidence left that it works — and ` +
+        `there isn't one.`,
+      evidence: [
+        {
+          eventIdx: 0,
+          label: "diff size",
+          excerpt: `${lines.toLocaleString()} lines across ${where} (verification: ${verification.status})`,
+        },
+      ],
+      firstEventIdx: null,
+      suggestedRules: [
+        {
+          kind: "budget",
+          rule: `Require a passing check before a run exceeds ${LARGE_CHURN_LINES.toLocaleString()} changed lines`,
+          implementation:
+            "PostToolUse hook accumulating added+removed lines per run; prompt for a test run at the threshold",
         },
       ],
     },
@@ -492,7 +551,8 @@ export function allRiskFindings(run: Run, verification: Verification): Finding[]
     ...detectSensitiveFiles(run),
     ...detectScopeEscape(run),
     ...detectDestructiveCommands(run),
-    ...detectBlastRadius(run, verification),
+    ...detectBlastRadius(run),
+    ...detectUnverifiedVolume(run, verification),
     ...detectWastedSpend(run),
   ];
 }

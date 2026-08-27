@@ -279,14 +279,17 @@ export function linesRemoved(run: Run): number {
  *
  * Named `netDiffLines` until 0.2.0, which was simply wrong and had consequences: a
  * run that rewrites 200 lines reports 400, so any threshold expressed in "lines"
- * was effectively half what its author intended. `risk.blast_radius` fires above
- * 400 and, measured over a real 509-run store, that put it at the 53rd percentile
- * of runs with a diff — a finding titled "Large change surface" tripping on the
- * median run.
+ * was effectively half what its author intended.
+ *
+ * That recalibration is done. Re-measured over a 1,952-run store (609 with a
+ * diff), the 400-line threshold sat at the 62nd percentile — median churn is 207 —
+ * so the finding fired on 24.8% of every run that touched a file. It is now 1,800,
+ * the p90, and lives in its own detector (`risk.unverified_large_diff`) rather than
+ * sharing one with the many-files check.
  *
  * Kept as churn rather than switched to net, because `> 0` is the "did anything
  * change" test used by the verdict cascade and a pure-replacement edit must count
- * as a change. Thresholds above zero are the part that needs recalibrating.
+ * as a change.
  */
 export function churnedLines(run: Run): number {
   return linesAdded(run) + linesRemoved(run);

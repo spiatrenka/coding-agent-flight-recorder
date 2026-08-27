@@ -84,7 +84,7 @@ store `unchanged` went from 42.8% to 47.2% and `wasteful` from 24.4% to 20.0%.
 ## Which findings can force `risky`
 
 Rule 1 is the only gate that overrides everything, so exactly which findings reach
-it matters more than any other detail here. Four do. Two that look like they should,
+it matters more than any other detail here. Five do. Two that look like they should,
 do not.
 
 | Finding | Category | Severity | Forces risky? |
@@ -96,6 +96,7 @@ do not.
 | `risk.outside_project` | scope | high | yes |
 | `risk.config_file_write` | scope | medium | **no** — scope needs high |
 | `risk.blast_radius` | scope | medium | **no** — scope needs high |
+| `risk.unverified_large_diff` | scope | medium | **no** — scope needs high |
 | `risk.cost_no_diff` | efficiency | medium, high ≥ $8 | **no** — expensive is not dangerous |
 | `verify.unbacked_claim` | verification | medium / high | **no** |
 
