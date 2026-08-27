@@ -50,6 +50,18 @@ function load(b: Builder): { run: Run; findings: Finding[] } {
   return { run, findings: analyze(run).findings };
 }
 
+/** Exactly 1,800 churned lines across two files, with no passing verification. */
+function fixtureAtLargeChurnBoundary(): Builder {
+  const b = new Builder({ start: new Date("2026-08-12T12:30:00Z") });
+  b.user("Migrate the settlement module off the legacy money helper.");
+  const old = Array.from({ length: 450 }, (_, i) => `legacyMoney.add(row[${i}]);`).join("\n");
+  const neu = Array.from({ length: 450 }, (_, i) => `Money.of(row[${i}]).add();`).join("\n");
+  b.edit("/Users/dev/code/payments-api/src/settlement/apply.ts", old, neu);
+  b.edit("/Users/dev/code/payments-api/src/settlement/batch.ts", old, neu);
+  b.say("Migrated. I have not run the suite.");
+  return b;
+}
+
 const ids = (findings: Finding[]): string[] => findings.map((f) => f.id);
 const find = (findings: Finding[], id: string): Finding => {
   const f = findings.find((x) => x.id === id);
@@ -89,9 +101,10 @@ describe("loop.stall_tail", () => {
 });
 
 describe("risk.blast_radius", () => {
-  it("flags a wide change surface from a narrow request", () => {
+  it("fires at exactly the 10-file threshold", () => {
     const { run, findings } = load(fixtureWideDiff());
     assert.ok((run.goal ?? "").length < 200, "premise: the ask really is short");
+    assert.equal(filesTouched(run).length, 10, "premise: the diff is exactly at the threshold");
     const f = find(findings, "risk.blast_radius");
     assert.match(f.title, /10 files/);
     assert.match(f.detail, /in response to a request of under 200 characters/);
@@ -108,6 +121,12 @@ describe("risk.blast_radius", () => {
 });
 
 describe("risk.unverified_large_diff", () => {
+  it("fires at exactly the 1,800-line threshold", () => {
+    const { run, findings } = load(fixtureAtLargeChurnBoundary());
+    assert.equal(churnedLines(run), 1800, "premise: the diff is exactly at the threshold");
+    find(findings, "risk.unverified_large_diff");
+  });
+
   it("flags a large diff with no passing verification", () => {
     const { run, findings } = load(fixtureBigDiff());
     const changed = churnedLines(run);
